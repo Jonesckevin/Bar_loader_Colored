@@ -1,0 +1,54 @@
+# Application metadata
+app:
+  title: "Barbell Calculator"
+  author: "JonesCKevin"
+  github_repo: "https://github.com/Jonesckevin/Bar_loader_Colored"
+  icon_path: "resources/icon.ico"
+  description: "A visual aid for barbell calculatoring; For weightlifting enthusiasts."
+  
+# Paths
+paths:
+  theme: "BarBellWeights"
+
+# Window settings
+window:
+  width: 650
+  height: 550
+  position: center
+
+# Background image settings
+background:
+  image: "resources/background.png"
+  scale_factor: 3
+
+# Fonts
+fonts:
+  default: ["Consolas", 12]
+  bold: ["Consolas", 12, "bold"]
+
+# Colors
+colors:
+  background: "#f0f0f0"
+  text: "#333333"
+  highlight: "#0078d7"
+
+# Barbell types and weights
+barbell_types:
+  Standard: [45, 20]
+  Bella Bar: [35, 15]
+  Power Bar: [45, 20]
+  Deadlift Bar: [45, 20]
+  Squat Bar: [55, 25]
+  EZ Curl Bar: [20, 10]
+  Trap Bar: [55, 25]
+  Safety Squat Bar: [55, 25]
+  Elephant Bar: [60, 28]
+
+# Image settings
+image:
+  rounding: 5
+
+# Padding settings
+padding:
+  default: 3
+  button: 1
