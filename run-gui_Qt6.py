@@ -5,10 +5,10 @@ import csv
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QRadioButton, QButtonGroup, QCheckBox, QLineEdit, QListWidget, QGroupBox, QScrollArea,
-    QGridLayout, QDialog, QFrame, QSizePolicy, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QSplitter,
+    QGridLayout, QDialog, QFrame, QSizePolicy, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox,
     QDialogButtonBox, QStyle, QFileDialog, QMessageBox
 )
-from PyQt6.QtGui import QPixmap, QFont, QCursor, QAction, QIcon, QColor
+from PyQt6.QtGui import QPixmap, QFont, QCursor, QIcon
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
 from PIL import Image
@@ -50,6 +50,23 @@ APP_AUTHOR = config["app"]["author"]
 APP_GITHUB_REPO = config["app"]["github_repo"]
 APP_ICON_PATH = config["app"]["icon_path"]
 APP_DESCRIPTION = config["app"]["description"]
+
+def round_weight(weight, rounding):
+    return round(weight / rounding) * rounding
+
+def get_theme_folder(selected_theme):
+    base_path = os.path.dirname(__file__)
+    return os.path.join(base_path, THEME_PATH, selected_theme)
+
+def get_image_path(theme, image_name):
+    folder = get_theme_folder(theme)
+    return os.path.join(folder, image_name)
+
+LIFT_COLS = [
+    "Bench1", "Bench2", "Bench3",
+    "Squat1", "Squat2", "Squat3",
+    "Deadlift1", "Deadlift2", "Deadlift3"
+]
 
 class UserPaneWindow(QMainWindow):
     def __init__(self, user_pane_widget, parent=None):
@@ -436,20 +453,16 @@ class BarbellCalculator(QMainWindow):
         # Update: Add new columns for lifts
         self.user_columns = [
             "First", "Last", "Age", "Weight_LB", "Weight_KG", "Sex",
-            "Bench1", "Bench2", "Bench3",
-            "Squat1", "Squat2", "Squat3",
-            "Deadlift1", "Deadlift2", "Deadlift3",
-            "Wilks"  # Add Wilks column
+            *LIFT_COLS,
+            "Wilks"
         ]
 
         # Update sort combo to include new columns
         self.sort_combo = QComboBox()
         self.sort_combo.addItems([
             "First", "Last", "Age", "Weight_LB", "Weight_KG", "Sex",
-            "Bench1", "Bench2", "Bench3",
-            "Squat1", "Squat2", "Squat3",
-            "Deadlift1", "Deadlift2", "Deadlift3",
-            "Wilks"  # Add Wilks to sort options
+            *LIFT_COLS,
+            "Wilks"
         ])
         self.sort_combo.currentIndexChanged.connect(self.filter_and_sort_users)
         filter_sort_layout.addWidget(self.sort_combo)
@@ -754,9 +767,7 @@ class BarbellCalculator(QMainWindow):
             with open(csv_path, "w", newline='', encoding='utf-8') as csvfile:
                 writer = csv.DictWriter(csvfile, fieldnames=[
                     "First", "Last", "Age", "Weight_LB", "Weight_KG", "Sex",
-                    "Bench1", "Bench2", "Bench3",
-                    "Squat1", "Squat2", "Squat3",
-                    "Deadlift1", "Deadlift2", "Deadlift3",
+                    *LIFT_COLS,
                     "Wilks"
                 ])
                 writer.writeheader()
@@ -766,12 +777,7 @@ class BarbellCalculator(QMainWindow):
             with open(csv_path, newline='', encoding='utf-8') as csvfile:
                 reader = csv.DictReader(csvfile)
                 for row in reader:
-                    for col in [
-                        "Bench1", "Bench2", "Bench3",
-                        "Squat1", "Squat2", "Squat3",
-                        "Deadlift1", "Deadlift2", "Deadlift3",
-                        "Wilks"
-                    ]:
+                    for col in [*LIFT_COLS, "Wilks"]:
                         if col not in row:
                             row[col] = ""
                     users.append(row)
@@ -835,59 +841,45 @@ class BarbellCalculator(QMainWindow):
                 )
 
     def update_example_image(self, image_name):
-        # If image_name is a full path, use it; else, try to resolve in theme folder
+        selected_theme = getattr(self, "theme_var", "")
+        base_path = os.path.dirname(__file__)
         if os.path.exists(image_name):
             image_path = image_name
         else:
-            selected_theme = getattr(self, "theme_var", "")
-            base_path = os.path.dirname(__file__)
-            image_path = os.path.join(base_path, THEME_PATH, selected_theme, image_name)
+            image_path = get_image_path(selected_theme, image_name)
         if os.path.exists(image_path):
-            # Compose image with PIL, then convert to QPixmap
             try:
                 image = Image.open(image_path).resize((180, 180))
                 inverted_image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-                selected_theme = getattr(self, "theme_var", "")
-                base_path = os.path.dirname(__file__)
-                static_image_path = os.path.join(base_path, THEME_PATH, selected_theme, "bar.png")
-                if os.path.exists(static_image_path):
-                    static_image = Image.open(static_image_path).resize((250, 180))
-                else:
-                    static_image = Image.new("RGBA", (0, 0), (255, 255, 255, 0))
+                static_image_path = get_image_path(selected_theme, "bar.png")
+                static_image = Image.open(static_image_path).resize((250, 180)) if os.path.exists(static_image_path) else Image.new("RGBA", (0, 0), (255, 255, 255, 0))
                 combined_width = image.width * 2 + static_image.width
                 combined_image = Image.new("RGBA", (combined_width, image.height))
                 combined_image.paste(image, (0, 0))
                 combined_image.paste(static_image, (image.width, 0))
                 combined_image.paste(inverted_image, (image.width + static_image.width, 0))
-                # Save to temp file and load as QPixmap
-                temp_path = os.path.join(os.path.dirname(__file__), "resources", "temp_combined.png")
+                temp_path = os.path.join(base_path, "resources", "temp_combined.png")
                 combined_image.save(temp_path)
                 pixmap = QPixmap(temp_path)
                 self.example_image_label.setPixmap(pixmap.scaled(self.example_image_label.size(), Qt.AspectRatioMode.KeepAspectRatio))
                 self.current_image_path = temp_path
-                # Update enlarged image window if open
                 if self.enlarged_image_window and self.enlarged_image_window.isVisible():
                     self.update_enlarged_image(self.current_image_path)
             except Exception as e:
                 self.display_message(f"Image error: {e}")
         else:
-            selected_theme = getattr(self, "theme_var", "")
-            base_path = os.path.dirname(__file__)
-            fallback_image_path = os.path.join(base_path, THEME_PATH, selected_theme, "none.png")
+            fallback_image_path = get_image_path(selected_theme, "none.png")
             if os.path.exists(fallback_image_path):
                 pixmap = QPixmap(fallback_image_path)
                 self.example_image_label.setPixmap(pixmap.scaled(self.example_image_label.size(), Qt.AspectRatioMode.KeepAspectRatio))
                 self.current_image_path = fallback_image_path
-                # Update enlarged image window if open
                 if self.enlarged_image_window and self.enlarged_image_window.isVisible():
                     self.update_enlarged_image(self.current_image_path)
             else:
                 self.example_image_label.clear()
                 self.current_image_path = None
-                # Close enlarged image window if open
                 if self.enlarged_image_window and self.enlarged_image_window.isVisible():
                     self.enlarged_image_window.close()
-        # ...existing code...
 
     def open_github(self):
         QDesktopServices.openUrl(QUrl(APP_GITHUB_REPO))
@@ -965,7 +957,7 @@ class BarbellCalculator(QMainWindow):
     def update_theme_photo(self, weight_number):
         self.display_message("")
         rounding = 2.5 if self.rounding_checkbox.isChecked() else IMAGE_ROUNDING
-        rounded_weight = round(weight_number / rounding) * rounding
+        rounded_weight = round_weight(weight_number, rounding)
         rounded_weight_str = f"{int(rounded_weight)}" if rounded_weight.is_integer() else f"{rounded_weight:.1f}"
         selected_theme = getattr(self, "theme_var", "")
         base_path = os.path.dirname(__file__)
@@ -986,8 +978,8 @@ class BarbellCalculator(QMainWindow):
     def update_weight(self):
         self.display_message("")
         rounding = 2.5 if self.rounding_checkbox.isChecked() else IMAGE_ROUNDING
-        rounded_weight_lb = round(self.current_weight_lb / rounding) * rounding
-        rounded_weight_kg = round(self.current_weight_kg / rounding) * rounding
+        rounded_weight_lb = round_weight(self.current_weight_lb, rounding)
+        rounded_weight_kg = round_weight(self.current_weight_kg, rounding)
         self.current_weight_label.setText(f"{rounded_weight_lb:.1f} lbs / {rounded_weight_kg:.1f} kg")
         self.calculate_weight()
         rounded_weight_str = f"{int(rounded_weight_lb)}" if rounded_weight_lb.is_integer() else f"{rounded_weight_lb:.1f}"
@@ -1002,61 +994,6 @@ class BarbellCalculator(QMainWindow):
     def update_conversions(self, weight_in_kg):
         stone = round(weight_in_kg / 6.35029)
         self.conversion_label.setText(f"(Conversions: {stone} st)")
-
-    def update_example_image(self, image_name):
-        # If image_name is a full path, use it; else, try to resolve in theme folder
-        if os.path.exists(image_name):
-            image_path = image_name
-        else:
-            selected_theme = getattr(self, "theme_var", "")
-            base_path = os.path.dirname(__file__)
-            image_path = os.path.join(base_path, THEME_PATH, selected_theme, image_name)
-        if os.path.exists(image_path):
-            # Compose image with PIL, then convert to QPixmap
-            try:
-                image = Image.open(image_path).resize((180, 180))
-                inverted_image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-                selected_theme = getattr(self, "theme_var", "")
-                base_path = os.path.dirname(__file__)
-                static_image_path = os.path.join(base_path, THEME_PATH, selected_theme, "bar.png")
-                if os.path.exists(static_image_path):
-                    static_image = Image.open(static_image_path).resize((250, 180))
-                else:
-                    static_image = Image.new("RGBA", (0, 0), (255, 255, 255, 0))
-                combined_width = image.width * 2 + static_image.width
-                combined_image = Image.new("RGBA", (combined_width, image.height))
-                combined_image.paste(image, (0, 0))
-                combined_image.paste(static_image, (image.width, 0))
-                combined_image.paste(inverted_image, (image.width + static_image.width, 0))
-                # Save to temp file and load as QPixmap
-                temp_path = os.path.join(os.path.dirname(__file__), "resources", "temp_combined.png")
-                combined_image.save(temp_path)
-                pixmap = QPixmap(temp_path)
-                self.example_image_label.setPixmap(pixmap.scaled(self.example_image_label.size(), Qt.AspectRatioMode.KeepAspectRatio))
-                self.current_image_path = temp_path
-                # Update enlarged image window if open
-                if self.enlarged_image_window and self.enlarged_image_window.isVisible():
-                    self.update_enlarged_image(self.current_image_path)
-            except Exception as e:
-                self.display_message(f"Image error: {e}")
-        else:
-            selected_theme = getattr(self, "theme_var", "")
-            base_path = os.path.dirname(__file__)
-            fallback_image_path = os.path.join(base_path, THEME_PATH, selected_theme, "none.png")
-            if os.path.exists(fallback_image_path):
-                pixmap = QPixmap(fallback_image_path)
-                self.example_image_label.setPixmap(pixmap.scaled(self.example_image_label.size(), Qt.AspectRatioMode.KeepAspectRatio))
-                self.current_image_path = fallback_image_path
-                # Update enlarged image window if open
-                if self.enlarged_image_window and self.enlarged_image_window.isVisible():
-                    self.update_enlarged_image(self.current_image_path)
-            else:
-                self.example_image_label.clear()
-                self.current_image_path = None
-                # Close enlarged image window if open
-                if self.enlarged_image_window and self.enlarged_image_window.isVisible():
-                    self.enlarged_image_window.close()
-        # ...existing code...
 
     def set_theme_filter(self, prefix):
         self.theme_filter_var = prefix
@@ -1089,7 +1026,7 @@ class BarbellCalculator(QMainWindow):
         theme_folder = os.path.join(base_path, THEME_PATH, selected_theme)
         # Use the current rounded weight for the preview image
         rounding = 2.5 if self.rounding_checkbox.isChecked() else IMAGE_ROUNDING
-        rounded_weight_lb = round(self.current_weight_lb / rounding) * rounding
+        rounded_weight_lb = round_weight(self.current_weight_lb, rounding)
         rounded_weight_str = f"{int(rounded_weight_lb)}" if rounded_weight_lb.is_integer() else f"{rounded_weight_lb:.1f}"
         image_path = os.path.join(theme_folder, f"{rounded_weight_str}.png")
         if not os.path.exists(image_path):
@@ -1325,9 +1262,7 @@ class BarbellCalculator(QMainWindow):
                     # Ensure all columns exist
                     for col in [
                         "First", "Last", "Age", "Weight_LB", "Weight_KG", "Sex",
-                        "Bench1", "Bench2", "Bench3",
-                        "Squat1", "Squat2", "Squat3",
-                        "Deadlift1", "Deadlift2", "Deadlift3",
+                        *LIFT_COLS,
                         "Wilks"
                     ]:
                         if col not in row:
@@ -1461,11 +1396,7 @@ class AddUserDialog(QDialog):
         else:
             data["Sex"] = ""
         # Ensure all lift fields exist
-        for col in [
-            "Bench1", "Bench2", "Bench3",
-            "Squat1", "Squat2", "Squat3",
-            "Deadlift1", "Deadlift2", "Deadlift3"
-        ]:
+        for col in LIFT_COLS:
             if col not in data:
                 data[col] = ""
         return data
@@ -1579,11 +1510,7 @@ class EditUserDialog(QDialog):
         else:
             data["Sex"] = ""
         # Ensure all lift fields exist
-        for col in [
-            "Bench1", "Bench2", "Bench3",
-            "Squat1", "Squat2", "Squat3",
-            "Deadlift1", "Deadlift2", "Deadlift3"
-        ]:
+        for col in LIFT_COLS:
             if col not in data:
                 data[col] = ""
         return data
