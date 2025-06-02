@@ -24,7 +24,7 @@ if (-not (Get-Command pyinstaller -ErrorAction SilentlyContinue)) {
     pip install pyinstaller
 }
 Write-WarningMsg "Building Python executable..."
-python -m PyInstaller --onefile --windowed --add-data "resources:resources" --add-data "BarBellWeights:BarBellWeights" $pythonScript
+python -m PyInstaller --onefile --windowed --icon "resources/icon.ico" --add-data "resources:resources" --add-data "BarBellWeights:BarBellWeights" $pythonScript
 
 # Sign the executable
 if (Test-Path $outputExe) {
