@@ -681,10 +681,15 @@ class BarbellCalculator(QMainWindow):
                     self.lifts_table.setItem(i, j, QTableWidgetItem(""))
             return
         user = self.filtered_sorted_users[idx]
+        # Use .get() for all fields to avoid KeyError
+        first = user.get('First', '')
+        last = user.get('Last', '')
         sex = user.get('Sex', '')
-        self.user_name_label.setText(f"<b>{user['First']} {user['Last']}</b> ({sex})")
+        weight_lb = user.get('Weight_LB', '')
+        weight_kg = user.get('Weight_KG', '')
+        self.user_name_label.setText(f"<b>{first} {last}</b> ({sex})")
         self.user_stats_label.setText(
-            f"BodyWeight: {user['Weight_LB']} lbs / {user['Weight_KG']} kg"
+            f"BodyWeight: {weight_lb} lbs / {weight_kg} kg"
         )
         # Fill lifts table
         for i, lift in enumerate(["Squat", "Bench", "Deadlift"]):
@@ -695,8 +700,10 @@ class BarbellCalculator(QMainWindow):
         # Next user preview (remove Age)
         next_idx = (idx + 1) % len(self.filtered_sorted_users)
         next_user = self.filtered_sorted_users[next_idx]
+        next_first = next_user.get('First', '')
+        next_last = next_user.get('Last', '')
         self.next_user_label.setText(
-            f"{next_user['First']} {next_user['Last']}"
+            f"{next_first} {next_last}"
         )
         self.current_user_idx = idx
         self.user_table.selectRow(idx)
