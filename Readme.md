@@ -12,10 +12,26 @@ The **Barbell Calculator** is a visual aid for weightlifting enthusiasts. It hel
 
 ## Features
 
-- Calculate barbell weights in pounds, kilograms, and stones.
-- Enable rounding for precise weight adjustments.
-- Create or Choose from multiple themes for a personalized experience.
-- Interactive UI with weight adjustment buttons.
+- Calculate weights in lbs, kg, or stones.
+- Round weights for precision.
+- Choose or create custom themes.
+- Interactive UI with adjustment buttons.
+- Manage users: add, edit, remove, import, export, purge.
+- Import users from CSV (replace or merge).
+- Export filtered/sorted users to CSV.
+- Purge users with auto-backup.
+- Edit user data in a dialog.
+- Add users with required info prompts.
+- View user details in a dialog.
+- Filter user data
+- Sort users by name, weight, or any column.
+- Auto populate user weight when adding users.
+- Remove users (archived in `data/removed.csv`).
+- Cycle users with "Prev"/"Next" and see details.
+- "Up Next" preview for the next user.
+- User data stored in `data` for easy backup.
+- Auto-create `data` and example users if missing.
+- Archived and purged users are backed up.
 
 ### Creating your own theme
 1. Create a new theme folder in the `BarBellWeights` directory. The name should start with `lb_` or `kg_` to indicate the weight type. Otherwise, the theme will go to the All/Other filter.
@@ -35,16 +51,8 @@ bash Setup.sh
 
 ### Using PowerShell (Windows)
 ```powershell
-.\Setup.ps1
+.\setup.ps1
 ```
-
-## Webapp Usage
-
-1. Run the application:
-   ```bash
-   python web_app.py
-   ```
-2. Open your browser and navigate to `http://127.0.0.1:5000`.
 
 ## Configuration File
 
@@ -53,6 +61,12 @@ The application uses a `config.yaml` file located in the `resources` directory. 
 - Fonts and colors
 - Barbell types and weights
 - Theme paths
+
+## Data Directory
+
+- All user data (`users.csv`, `removed.csv`, backups) is stored in the `data` directory.
+- The app will auto-create `data/users.csv` with example users if it does not exist.
+- This keeps user data separate from resources and themes.
 
 ## Ideas
 
