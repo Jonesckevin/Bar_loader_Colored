@@ -712,10 +712,8 @@ class BarbellCalculator(QMainWindow):
         base_path = os.path.dirname(__file__)
         data_dir = os.path.join(base_path, "data")
         csv_path = os.path.join(data_dir, "users.csv")
-        # Ensure data directory exists
         if not os.path.exists(data_dir):
             os.makedirs(data_dir, exist_ok=True)
-        # If users.csv does not exist, create it with example data
         if not os.path.exists(csv_path):
             example_users = [
                 {"First": "Alice", "Last": "Example1", "Age": "28", "Weight_LB": "135", "Weight_KG": "61.2", "Sex": "Female",
@@ -735,7 +733,6 @@ class BarbellCalculator(QMainWindow):
                  "Squat1": "200", "Squat2": "205", "Squat3": "210",
                  "Deadlift1": "230", "Deadlift2": "235", "Deadlift3": "240"},
             ]
-            # Add Wilks column to each user
             for user in example_users:
                 try:
                     sex = user.get("Sex", "")
@@ -747,7 +744,6 @@ class BarbellCalculator(QMainWindow):
                     user["Wilks"] = self.compute_wilks(sex, bw, total)
                 except Exception:
                     user["Wilks"] = ""
-            # Write to users.csv
             with open(csv_path, "w", newline='', encoding='utf-8') as csvfile:
                 writer = csv.DictWriter(csvfile, fieldnames=[
                     "First", "Last", "Age", "Weight_LB", "Weight_KG", "Sex",
@@ -759,17 +755,15 @@ class BarbellCalculator(QMainWindow):
                 writer.writeheader()
                 for user in example_users:
                     writer.writerow(user)
-        # Now load users.csv
         if os.path.exists(csv_path):
             with open(csv_path, newline='', encoding='utf-8') as csvfile:
                 reader = csv.DictReader(csvfile)
                 for row in reader:
-                    # Ensure all columns exist
                     for col in [
                         "Bench1", "Bench2", "Bench3",
                         "Squat1", "Squat2", "Squat3",
                         "Deadlift1", "Deadlift2", "Deadlift3",
-                        "Wilks"  # Ensure Wilks exists
+                        "Wilks"
                     ]:
                         if col not in row:
                             row[col] = ""
