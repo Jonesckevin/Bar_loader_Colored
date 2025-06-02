@@ -1,4 +1,4 @@
-# Python GUI - Barbell Calculator
+# Python GUI - Barbell Calculator and Powerlifting Management 
 
 <div style="border: 10px solid rgb(14, 202, 68); 
 border-radius: 0 35px 0 35px; 
