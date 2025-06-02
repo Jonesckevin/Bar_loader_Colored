@@ -13,8 +13,18 @@ from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
 from PIL import Image
 
+def resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller .exe."""
+    if hasattr(sys, '_MEIPASS'):
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    else:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, relative_path)
+
 # Load configuration from YAML file
-with open("resources/config.yaml", "r") as config_file:
+config_path = resource_path(os.path.join("resources", "config.yaml"))
+with open(config_path, "r") as config_file:
     config = yaml.safe_load(config_file)
 
 # Extract configuration variables
@@ -55,7 +65,7 @@ def round_weight(weight, rounding):
     return round(weight / rounding) * rounding
 
 def get_theme_folder(selected_theme):
-    base_path = os.path.dirname(__file__)
+    base_path = resource_path("")  # Use resource_path for exe compatibility
     return os.path.join(base_path, THEME_PATH, selected_theme)
 
 def get_image_path(theme, image_name):
@@ -729,7 +739,7 @@ class BarbellCalculator(QMainWindow):
 
     def load_users_from_csv(self):
         users = []
-        base_path = os.path.dirname(__file__)
+        base_path = resource_path("")
         data_dir = os.path.join(base_path, "data")
         csv_path = os.path.join(data_dir, "users.csv")
         if not os.path.exists(data_dir):
@@ -782,6 +792,33 @@ class BarbellCalculator(QMainWindow):
                             row[col] = ""
                     users.append(row)
         return users
+
+    def load_judge_scores(self):
+        base_path = resource_path("")
+        judge_csv = os.path.join(base_path, "data", "judge_scores.csv")
+        scores = []
+        if os.path.exists(judge_csv):
+            with open(judge_csv, newline='', encoding='utf-8') as csvfile:
+                reader = csv.DictReader(csvfile)
+                for row in reader:
+                    scores.append(row)
+        return scores
+
+    def save_judge_scores(self):
+        base_path = resource_path("")
+        judge_csv = os.path.join(base_path, "data", "judge_scores.csv")
+        os.makedirs(os.path.dirname(judge_csv), exist_ok=True)
+        fieldnames = ["User", "Judge", "Score"]
+        try:
+            with open(judge_csv, "w", newline='', encoding='utf-8') as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+                # Write example scores for testing
+                for user in self.filtered_sorted_users:
+                    writer.writerow({"User": f"{user.get('First')} {user.get('Last')}", "Judge": "Judge1", "Score": "9"})
+                    writer.writerow({"User": f"{user.get('First')} {user.get('Last')}", "Judge": "Judge2", "Score": "8"})
+        except Exception as e:
+            self.display_message(f"Error saving judge scores: {e}")
 
     def toggle_user_pane(self):
         if self.collapse_btn.isChecked():
@@ -1152,7 +1189,7 @@ class BarbellCalculator(QMainWindow):
         except ValueError:
             pass  # Already removed
         # Save to removed.csv
-        base_path = os.path.dirname(__file__)
+        base_path = resource_path("")
         removed_csv_path = os.path.join(base_path, "data", "removed.csv")
         os.makedirs(os.path.dirname(removed_csv_path), exist_ok=True)
         fieldnames = self.user_columns
@@ -1189,7 +1226,7 @@ class BarbellCalculator(QMainWindow):
         if reply != QMessageBox.StandardButton.Yes:
             return
         import datetime
-        base_path = os.path.dirname(__file__)
+        base_path = resource_path("")
         csv_path = os.path.join(base_path, "data", "users.csv")
         today = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
         purged_csv_path = os.path.join(base_path, "data", f"users_purged_{today}.csv")
@@ -1216,7 +1253,7 @@ class BarbellCalculator(QMainWindow):
             self.display_message(f"Purge failed: {e}")
 
     def save_users_to_csv(self):
-        base_path = os.path.dirname(__file__)
+        base_path = resource_path("")
         csv_path = os.path.join(base_path, "data", "users.csv")
         os.makedirs(os.path.dirname(csv_path), exist_ok=True)
         fieldnames = self.user_columns
