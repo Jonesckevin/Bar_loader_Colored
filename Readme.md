@@ -46,7 +46,18 @@ Installs `python` and `pip` along with all required packages and dependencies.
 
 ### Using Bash (Linux/MacOS)
 ```bash
-bash Setup.sh
+bash setup.sh
+```
+### Create exe from Python script
+```bash
+# Takes about 5 minutes to run
+pip install pyinstaller
+python -m PyInstaller --onefile --windowed --add-data "resources:resources" --add-data "BarBellWeights:BarBellWeights" run-gui_Qt6.py
+# Output is in the `dist` directory as `run-gui_Qt6.exe`
+```
+OR
+```powershell
+.\build_exe-&-sign.ps1
 ```
 
 ### Using PowerShell (Windows)
