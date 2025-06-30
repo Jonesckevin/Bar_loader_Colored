@@ -91,3 +91,19 @@ The application uses a `config.yaml` file located in the `resources` directory. 
 
 Created by **JonesCKevin**.  
 GitHub Repository: [Bar_loader_Colored](https://github.com/Jonesckevin/Bar_loader_Colored)
+
+
+## To Do
+
+- Editable Title
+- Add Judge and Referee management.
+- Add Live Scoring & Results Display
+- Add Rack Height Management
+- Custom Branding & Sponsorships Loading
+- Add a feature to save and load user profiles with custom settings.
+- Customizable UI Themes
+- Help Menus
+- Json Export Option
+- Create Grapgics for Competitor Results and stats
+- Resetable Stopwatch
+- Hotkey for Judges

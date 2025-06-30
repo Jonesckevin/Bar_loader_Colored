@@ -1,5 +1,16 @@
-Flask>=2.3.2
-PyYAML>=6.0
-Pillow>=10.0.0
-PyQt5>=5.15.0
+#Flask>=2.3.2
+
+## Gui Dependency
+#PyQt5>=5.15.0
+#PyQt6>=6.0.0
 PyQt6>=6.4.0
+
+## For image processing (graceful fallback if missing)
+#Pillow>=8.0.0
+Pillow>=10.0.0
+
+## Building and packaging dependencies
+pyinstaller>=5.0.0
+
+## If Pillow is not available, image processing will be disabled with user notification.
+## Configuration is now handled with built-in JSON instead of PyYAML for simplicity.
