@@ -6,7 +6,7 @@ These are legacy for some old stream elements projects which streamers may be us
 
 To use a simple wheel spin app in an overlay which can be modified and activated in chat, use the following code in the appropriate place for the overlay item.
 
-Source: https://github.com/pjonp/pjTestBot/tree/master/modules/.SE_Overlays/chatterWheel
+Source: <https://github.com/pjonp/pjTestBot/tree/master/modules/.SE_Overlays/chatterWheel>
 
 ### Html
 
@@ -154,7 +154,7 @@ let defaultPrizeList = [
     text: "Nose Bleach",
     fillStyle: 'skyblue',
     res: '!p Nose Bleach',
-		size: 0.05
+  size: 0.05
   },
   {
     text: "Beast - Strong",
@@ -175,7 +175,7 @@ let defaultPrizeList = [
     text: "Pumpkin Spiked Lobotomy",
     fillStyle: 'blue',
     res: '!p Pumpkin Spiked Lobotomy',
-		size: 0.10
+  size: 0.10
   },
   {
     text: "Saiyan Salts!",
@@ -186,13 +186,13 @@ let defaultPrizeList = [
     text: "Saiyan Salts GT",
     fillStyle: 'black',
     res: '!p Saiyan Salts GT',
-		size: 0.10
+  size: 0.10
   },
   {
     text: "Basic",
     fillStyle: 'GOLD',
     res: '!p Basic',
-		size: 0.10
+  size: 0.10
   },
   {
     text: "Ultra",
@@ -208,7 +208,7 @@ let defaultPrizeList = [
     text: "Irish Carbomb",
     fillStyle: 'black',
     res: '!p Irish Carbomb',
-		size: 0.10
+  size: 0.10
   },
 ];
 
