@@ -69,9 +69,23 @@ if errorlevel 1 (
     exit /b 1
 )
 
+REM Clean up Build/dist folders
+echo Cleaning up build artifacts...
+if exist "dist\BarLoader.exe" (
+    echo Build successful. Moving Exe...
+    move "dist\BarLoader.exe" ".\BarLoader.exe"
+) else (
+    echo Error: Exe not found in dist folder.
+)
+if exist "build" rmdir /s /q "build"
+if exist "dist" rmdir /s /q "dist"
+if exist "BarLoader.spec" del "BarLoader.spec"
+
+
 echo.
 echo === Build Complete ===
 echo Your application has been built in the 'dist' folder.
 echo Run 'dist\BarLoader\BarLoader.exe' to test it.
 echo.
-pause
+echo The window will close automatically in 30 seconds...
+timeout /t 30 >nul
