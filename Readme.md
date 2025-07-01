@@ -1,32 +1,42 @@
 # Python GUI - Barbell Calculator and Powerlifting Management 
 
-<div style="border: 10px solid rgb(14, 202, 68); 
-border-radius: 0 35px 0 35px; 
+## Author
+
+Created by **JonesCKevin**.  
+GitHub Repository: [Bar_loader_Colored](https://github.com/Jonesckevin/Bar_loader_Colored)
+
+<div style="border: 5px solid rgb(14, 202, 68);
+border-radius: 0 35px 0 35px;
 box-shadow: 5px 5px 15px rgba(0, 0, 0, 0.5); display: inline-block;">
     <img src="Example/ui_photo.png" alt="Barbell Calculator UI" style="display: block; border-radius: 0 25px 0 25px;">
 </div>
 
 ## Overview
 
-The **Barbell Calculator** is a visual aid for weightlifting enthusiasts. It helps calculate barbell weights and provides a customizable theme interface.
+The **Barbell Calculator** is a python script using [Qt6](https://www.pythonguis.com/pyqt6-tutorial/) to create a GUI visual aid for weightlifting enthusiasts. It helps calculate barbell weights and provides a customizable theme interface. It also has a second tab for managing users, to add, edit, remove, import, export, and purge users. The app is designed to be user-friendly with an interactive UI that allows you to adjust weights and view user details easily.
+
+> The program does not currently save data on close.
 
 ## Features
 
+- Window Resizing
+- Hide User management tab
 - Calculate weights in lbs, kg, or stones.
 - Round weights for precision.
-- Choose or create custom themes.
-- Interactive UI with adjustment buttons.
-- Manage users: add, edit, remove, import, export, purge.
-- Import users from CSV (replace or merge).
-- Export filtered/sorted users to CSV.
-- Purge users with auto-backup.
+- Choose or create custom bars and colors, or dumbbell themes.
+- Weight preview and popout preview available
+- Interactive UI with weight adjustment buttons.
+- Double Click Manage users: add, edit, remove, import, export
 - Edit user data in a dialog.
-- Add users with required info prompts.
+- Purge users with auto-backup.
+- Import users from CSV (replace).
+- Export users from CSV.
+- Add users with via dialog box.
 - View user details in a dialog.
 - Filter user data
 - Sort users by name, weight, or any column.
-- Auto populate user weight when adding users.
-- Remove users (archived in `data/removed.csv`).
+- Auto populate user weight (other weight) when adding users.
+- Remove users with confirm overide (archived in `data/removed.csv`)
 - Cycle users with "Prev"/"Next" and see details.
 - "Up Next" preview for the next user.
 - User data stored in `data` for easy backup.
@@ -34,44 +44,36 @@ The **Barbell Calculator** is a visual aid for weightlifting enthusiasts. It hel
 - Archived and purged users are backed up.
 
 ### Creating your own theme
+
 1. Create a new theme folder in the `BarBellWeights` directory. The name should start with `lb_` or `kg_` to indicate the weight type. Otherwise, the theme will go to the All/Other filter.
 2. Copy one of the examples for quicker results, but ensure you have a `bar.png`, `none.png`, and the files should be named by their weight type (e.g., `45.png`, `47.5.png`).
-3. I recommend putting weights from `45 to 855 for barbell` or `5 to 120 for dumbbell`. 
+3. I recommend putting weights from `45 to 855 for barbell` or `5 to 120 for dumbbell`.
 4. If you want to add your theme or make changes, just create a pull request.
 
 ## Preperations / Installation
 
+Installs `python` and `pip` along with all required packages and dependencies.
 
-Installs `python` and `pip` along with all required packages and dependencies. 
+### Using PowerShell (Windows)
+
+```powershell
+.\setup.ps1
+```
 
 ### Using Bash (Linux/MacOS)
+
 ```bash
 bash setup.sh
 ```
+
 ### Create exe from Python script
+
 ```bash
 # Takes about 5 minutes to run
 pip install pyinstaller
 python -m PyInstaller --onefile --windowed --add-data "resources:resources" --add-data "BarBellWeights:BarBellWeights" run-gui_Qt6.py
 # Output is in the `dist` directory as `run-gui_Qt6.exe`
 ```
-OR
-```powershell
-.\build_exe-&-sign.ps1
-```
-
-### Using PowerShell (Windows)
-```powershell
-.\setup.ps1
-```
-
-## Configuration File
-
-The application uses a `config.yaml` file located in the `resources` directory. You can customize:
-- Window dimensions
-- Fonts and colors
-- Barbell types and weights
-- Theme paths
 
 ## Data Directory
 
@@ -86,12 +88,6 @@ The application uses a `config.yaml` file located in the `resources` directory. 
 - Add Gui customizations
 - Add a feature to save and load user profiles with custom settings.
 - Implement a dark mode theme option for better visibility.
-
-## Author
-
-Created by **JonesCKevin**.  
-GitHub Repository: [Bar_loader_Colored](https://github.com/Jonesckevin/Bar_loader_Colored)
-
 
 ## To Do
 
