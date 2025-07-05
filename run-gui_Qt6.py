@@ -1,5 +1,6 @@
 import sys
 import os
+import io
 import json
 import csv
 import datetime
@@ -8,7 +9,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QRadioButton, QButtonGroup, QCheckBox, QLineEdit, QListWidget, QGroupBox, QScrollArea,
     QGridLayout, QDialog, QFrame, QSizePolicy, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox,
-    QDialogButtonBox, QStyle, QFileDialog, QMessageBox, QSplitter
+    QDialogButtonBox, QStyle, QFileDialog, QMessageBox, QSplitter, QMenu
 )
 from PyQt6.QtGui import QPixmap, QFont, QCursor, QIcon
 from PyQt6.QtCore import Qt, QUrl, QTimer
@@ -19,91 +20,37 @@ try:
 except ImportError:
     Image = None  # Handle missing PIL gracefully
 
-# Constants
-LIFT_COLS = [
-    "Bench1", "Bench2", "Bench3",
-    "Squat1", "Squat2", "Squat3",
-    "Deadlift1", "Deadlift2", "Deadlift3"
-]
+from resources.functions import (
 
-CONVERSION_FACTOR_LB_TO_KG = 2.20462
-CONVERSION_FACTOR_KG_TO_STONE = 6.35029
+    resource_path, load_config, round_weight,
 
-def resource_path(relative_path: str) -> str:
-    """Get absolute path to resource, works for dev and for PyInstaller .exe."""
-    if hasattr(sys, '_MEIPASS'):
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
-        base_path = sys._MEIPASS
-    else:
-        base_path = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(base_path, relative_path)
+    compute_dots, convert_lb_to_kg, convert_kg_to_lb, convert_kg_to_stone,
+    calculate_total_lifts, CONVERSION_FACTOR_LB_TO_KG, CONVERSION_FACTOR_KG_TO_STONE,
 
-def load_config() -> Dict[str, Any]:
-    """Load configuration from JSON file with error handling."""
-    config_path = resource_path(os.path.join("resources", "config.json"))
-    try:
-        with open(config_path, "r", encoding='utf-8') as config_file:
-            return json.load(config_file)
-    except FileNotFoundError:
-        # Return default config if file not found
-        return {
-            "window": {"width": 750, "height": 750},
-            "fonts": {"default": ["Consolas", 12], "bold": ["Consolas", 12, "bold"]},
-            "colors": {
-                "background": "#23272e", "text": "#e0e0e0", "highlight": "#4f8cff",
-                "accent": "#ff9800", "success": "#4caf50", "warning": "#ffc107",
-                "error": "#f44336", "info": "#2196f3", "border": "#444a52",
-                "button_bg": "#2d323b", "button_fg": "#e0e0e0", "button_hover": "#3a4050",
-                "input_bg": "#23272e", "input_fg": "#e0e0e0",
-                "selection_bg": "#4f8cff", "selection_fg": "#23272e"
-            },
-            "barbell_types": {
-                "Standard": [45, 20],
-                "Bella Bar": [35, 15],
-                "Power Bar": [45, 20],
-                "Deadlift Bar": [45, 20],
-                "Squat Bar": [55, 25],
-                "EZ Curl Bar": [20, 10],
-                "Trap Bar": [55, 25],
-                "Safety Squat Bar": [55, 25],
-                "Elephant Bar": [60, 28]
-            },
-            "image": {"rounding": 5},
-            "paths": {"theme": "BarBellWeights"},
-            "padding": {"default": 3, "button": 1},
-            "app": {
-                "title": "Barbell Calculator",
-                "author": "JonesCKevin",
-                "github_repo": "https://github.com/Jonesckevin/Bar_loader_Colored",
-                "icon_path": "resources/icon.ico",
-                "description": "A visual aid for barbell calculatoring; For weightlifting enthusiasts."
-            }
-        }
-    except json.JSONDecodeError as e:
-        print(f"Error loading config: {e}")
-        return {}
-    except Exception as e:
-        print(f"Unexpected error loading config: {e}")
-        return {}
+    get_theme_folder, get_image_path, load_available_themes,
+    filter_themes_by_text, filter_themes_by_category,
 
-def round_weight(weight: float, rounding: float) -> float:
-    """Round weight to specified increment."""
-    return round(weight / rounding) * rounding
+    create_combined_image_pixmap, get_cached_static_image, pil_to_pixmap,
+    cleanup_temp_files, load_and_validate_image,
 
-def get_theme_folder(selected_theme: str) -> str:
-    """Get theme folder path."""
-    base_path = resource_path("")
-    return os.path.join(base_path, THEME_PATH, selected_theme)
+    load_users_from_csv, save_users_to_csv, import_users_from_csv_file,
+    export_users_to_csv_file, save_removed_user, backup_users_data,
+    update_user_dots, update_user_scores, validate_user_data, filter_users_by_text as filter_users_text,
+    sort_users_by_column, load_judge_scores, ensure_user_completeness, LIFT_COLS,
+    
+    StopwatchDialog, TimerDialog, open_rules_link,
+    ThemeManager
+)
 
-def get_image_path(theme: str, image_name: str) -> str:
-    """Get full image path for theme."""
-    folder = get_theme_folder(theme)
-    return os.path.join(folder, image_name)
+# Load config and set up global variables
+def initialize_config():
+    """Initialize configuration and global variables."""
+    config = load_config()
+    return config
 
-# Load configuration
-config = load_config()
+# Initialize config
+config = initialize_config()
 
-# Extract configuration variables
 WINDOW_WIDTH = config["window"]["width"]
 WINDOW_HEIGHT = config["window"]["height"]
 FONT = tuple(config["fonts"]["default"])
@@ -130,13 +77,11 @@ THEME_PATH = config["paths"]["theme"]
 DEFAULT_PADDING = config["padding"]["default"]
 DEFAULT_BUTTON_PADDING = config["padding"]["button"]
 
-# Extract application metadata
 APP_TITLE = config["app"]["title"]
 APP_AUTHOR = config["app"]["author"]
 APP_GITHUB_REPO = config["app"]["github_repo"]
 APP_ICON_PATH = config["app"]["icon_path"]
 APP_DESCRIPTION = config["app"]["description"]
-
 
 class EditableLabel(QLabel):
     """A QLabel that becomes editable when double-clicked."""
@@ -159,16 +104,16 @@ class EditableLabel(QLabel):
         self.edit_mode = True
         self.original_text = self.text()
         
-        # Create a line edit widget with exact same geometry
+
         self.line_edit = QLineEdit(self.text(), self.parent())
         
-        # Copy exact geometry and styling
+
         self.line_edit.setGeometry(self.geometry())
         self.line_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.line_edit.setFont(self.font())
         self.line_edit.setStyleSheet(self.styleSheet())
         
-        # Ensure the line edit has the same size policy
+
         self.line_edit.setSizePolicy(self.sizePolicy())
         self.line_edit.setMinimumSize(self.minimumSize())
         self.line_edit.setMaximumSize(self.maximumSize())
@@ -177,11 +122,11 @@ class EditableLabel(QLabel):
         self.line_edit.show()
         self.line_edit.setFocus()
         
-        # Connect signals
+
         self.line_edit.returnPressed.connect(self.finish_editing)
         self.line_edit.editingFinished.connect(self.finish_editing)
         
-        # Make the label transparent but keep its space occupied
+
         self.setStyleSheet(self.styleSheet() + "color: transparent;")
         
     def finish_editing(self):
@@ -193,33 +138,13 @@ class EditableLabel(QLabel):
             else:
                 self.setText(self.original_text)
             
-            # Restore original styling
+
             original_style = self.styleSheet().replace("color: transparent;", "")
             self.setStyleSheet(original_style)
             
             self.line_edit.deleteLater()
             self.line_edit = None
             self.edit_mode = False
-
-
-def compute_wilks(sex: str, bodyweight_kg: str, total_kg: float) -> str:
-    """Compute Wilks score for powerlifting."""
-    # Wilks coefficients (2020, updated formula)
-    if sex.lower() == "male":
-        a, b, c, d, e, f = 47.46178854, 8.472061379, 0.07369410346, -0.001395833811, 7.07665973070743e-06, -1.20804336482315e-08
-    else:
-        a, b, c, d, e, f = -125.4255398, 13.71219419, -0.03307250631, -0.001050400051, 9.38773881462799e-06, -2.3334613884954e-08
-    
-    try:
-        bw = float(bodyweight_kg) if bodyweight_kg else 0
-        if bw <= 0 or total_kg <= 0:
-            return ""
-        coeff = 600 / (a + b*bw + c*bw**2 + d*bw**3 + e*bw**4 + f*bw**5)
-        wilks = float(total_kg) * coeff
-        return f"{wilks:.1f}"
-    except (ValueError, TypeError, ZeroDivisionError):
-        return ""
-
 
 class AddUserDialog(QDialog):
     def __init__(self, parent=None):
@@ -229,7 +154,7 @@ class AddUserDialog(QDialog):
         self.resize(650, 800)
         self.setMinimumSize(600, 750)
         
-        # Apply modern styling
+
         self.setStyleSheet(f"""
             QDialog {{
                 background-color: {COLOR1};
@@ -297,12 +222,12 @@ class AddUserDialog(QDialog):
             }}
         """)
         
-        # Main layout
+
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(15)
         main_layout.setContentsMargins(20, 20, 20, 20)
         
-        # Create scroll area for better organization
+
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameStyle(QFrame.Shape.NoFrame)
@@ -312,7 +237,7 @@ class AddUserDialog(QDialog):
         scroll_layout = QVBoxLayout(scroll_widget)
         scroll_layout.setSpacing(20)
         
-        # Personal Information Group
+
         personal_group = QGroupBox("👤 Personal Information")
         personal_layout = QGridLayout(personal_group)
         personal_layout.setSpacing(12)
@@ -332,11 +257,10 @@ class AddUserDialog(QDialog):
         self.sex_combo.addItems(["Male", "Female"])
         
                 
-        # Connect weight conversion signals
+
         self.weight_lb_edit.textChanged.connect(self._convert_lb_to_kg)
         self.weight_kg_edit.textChanged.connect(self._convert_kg_to_lb)
 
-        # Add personal info fields to layout
         personal_layout.addWidget(QLabel("First Name:"), 0, 0)
         personal_layout.addWidget(self.first_name_edit, 0, 1)
         personal_layout.addWidget(QLabel("Last Name:"), 1, 0)
@@ -352,13 +276,13 @@ class AddUserDialog(QDialog):
         
         scroll_layout.addWidget(personal_group)
         
-        # Powerlifting Attempts Group
+
         lifts_group = QGroupBox("🏋️ Powerlifting Attempts")
         lifts_layout = QGridLayout(lifts_group)
         lifts_layout.setSpacing(12)
         lifts_layout.setContentsMargins(15, 25, 15, 15)
         
-        # Create lift fields
+
         self.bench1_edit = QLineEdit()
         self.bench1_edit.setPlaceholderText("Weight...")
         self.bench2_edit = QLineEdit()
@@ -378,7 +302,7 @@ class AddUserDialog(QDialog):
         self.deadlift3_edit = QLineEdit()
         self.deadlift3_edit.setPlaceholderText("Weight...")
         
-        # Add header labels
+
         lifts_layout.addWidget(QLabel(""), 0, 0)  # Empty corner
         
         squat_header = QLabel("Squat")
@@ -393,7 +317,7 @@ class AddUserDialog(QDialog):
         deadlift_header.setStyleSheet(f"color: {COLOR3}; font-weight: bold; font-size: 14px;")
         lifts_layout.addWidget(deadlift_header, 0, 3)
         
-        # Add attempt rows
+
         lifts_layout.addWidget(QLabel("Attempt 1:"), 1, 0)
         lifts_layout.addWidget(self.squat1_edit, 1, 1)
         lifts_layout.addWidget(self.bench1_edit, 1, 2)
@@ -415,7 +339,7 @@ class AddUserDialog(QDialog):
         scroll_area.setWidget(scroll_widget)
         main_layout.addWidget(scroll_area)
         
-        # Styled button box
+
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         button_box.setStyleSheet(f"""
             QDialogButtonBox {{
@@ -452,14 +376,13 @@ class AddUserDialog(QDialog):
             lb_text = self.weight_lb_edit.text().strip()
             if lb_text and lb_text != "":
                 lb_value = float(lb_text)
-                kg_value = lb_value / CONVERSION_FACTOR_LB_TO_KG
-                # Temporarily disconnect the signal to avoid recursion
+                kg_value = convert_lb_to_kg(lb_value)
+
                 self.weight_kg_edit.textChanged.disconnect()
                 self.weight_kg_edit.setText(f"{kg_value:.1f}")
-                # Reconnect the signal
+
                 self.weight_kg_edit.textChanged.connect(self._convert_kg_to_lb)
         except (ValueError, TypeError):
-            # If conversion fails, just ignore (user might be typing)
             pass
     
     def _convert_kg_to_lb(self):
@@ -468,14 +391,13 @@ class AddUserDialog(QDialog):
             kg_text = self.weight_kg_edit.text().strip()
             if kg_text and kg_text != "":
                 kg_value = float(kg_text)
-                lb_value = kg_value * CONVERSION_FACTOR_LB_TO_KG
-                # Temporarily disconnect the signal to avoid recursion
+                lb_value = convert_kg_to_lb(kg_value)
+
                 self.weight_lb_edit.textChanged.disconnect()
                 self.weight_lb_edit.setText(f"{lb_value:.1f}")
-                # Reconnect the signal
+
                 self.weight_lb_edit.textChanged.connect(self._convert_lb_to_kg)
         except (ValueError, TypeError):
-            # If conversion fails, just ignore (user might be typing)
             pass
 
     def get_user_data(self):
@@ -496,10 +418,12 @@ class AddUserDialog(QDialog):
             "Deadlift2": self.deadlift2_edit.text(),
             "Deadlift3": self.deadlift3_edit.text(),
             "Total": "",
-            "Wilks": ""
+            "DOTS": "",
+            "Wilks": "",
+            "Wilks2": "",
+            "IPF": "",
+            "IPF_GL": ""
         }
-
-
 
 class EditUserDialog(QDialog):
     def __init__(self, user_data, columns, parent=None):
@@ -509,7 +433,7 @@ class EditUserDialog(QDialog):
         self.resize(650, 800)
         self.setMinimumSize(600, 750)
         
-        # Apply modern styling
+
         self.setStyleSheet(f"""
             QDialog {{
                 background-color: {COLOR1};
@@ -577,12 +501,12 @@ class EditUserDialog(QDialog):
             }}
         """)
         
-        # Main layout
+
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(15)
         main_layout.setContentsMargins(20, 20, 20, 20)
         
-        # Create scroll area for better organization
+
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameStyle(QFrame.Shape.NoFrame)
@@ -594,7 +518,7 @@ class EditUserDialog(QDialog):
         
         self.fields = {}
         
-        # Personal Information Group
+
         personal_group = QGroupBox("👤 Personal Information")
         personal_layout = QGridLayout(personal_group)
         personal_layout.setSpacing(12)
@@ -620,31 +544,31 @@ class EditUserDialog(QDialog):
                 personal_layout.addWidget(widget, row, 1)
                 row += 1
         
-        # Connect weight conversion signals if both Weight_LB and Weight_KG exist
+
         if "Weight_LB" in self.fields and "Weight_KG" in self.fields:
             self.fields["Weight_LB"].textChanged.connect(self._convert_lb_to_kg)
             self.fields["Weight_KG"].textChanged.connect(self._convert_kg_to_lb)
         
         scroll_layout.addWidget(personal_group)
         
-        # Powerlifting Attempts Group
+
         lifts_group = QGroupBox("🏋️ Powerlifting Attempts")
         lifts_layout = QGridLayout(lifts_group)
         lifts_layout.setSpacing(12)
         lifts_layout.setContentsMargins(15, 25, 15, 15)
         
-        # Create lift sections
+
         lift_types = ["Squat", "Bench", "Deadlift"]
         row = 0
         
-        # Add header labels
+
         lifts_layout.addWidget(QLabel(""), 0, 0)  # Empty corner
         for col, lift_type in enumerate(lift_types):
             header_label = QLabel(f"{lift_type}")
             header_label.setStyleSheet(f"color: {COLOR3}; font-weight: bold; font-size: 14px;")
             lifts_layout.addWidget(header_label, 0, col + 1)
         
-        # Add attempt rows
+
         for attempt in range(1, 4):
             attempt_label = QLabel(f"Attempt {attempt}:")
             lifts_layout.addWidget(attempt_label, attempt, 0)
@@ -660,8 +584,8 @@ class EditUserDialog(QDialog):
         
         scroll_layout.addWidget(lifts_group)
         
-        # Add any remaining fields that weren't categorized
-        other_fields = [col for col in columns if col not in personal_fields + [f"{lift}{num}" for lift in lift_types for num in range(1, 4)] and col != "Wilks"]
+
+        other_fields = [col for col in columns if col not in personal_fields + [f"{lift}{num}" for lift in lift_types for num in range(1, 4)] and col != "DOTS"]
         if other_fields:
             other_group = QGroupBox("📊 Additional Information")
             other_layout = QGridLayout(other_group)
@@ -682,7 +606,7 @@ class EditUserDialog(QDialog):
         scroll_area.setWidget(scroll_widget)
         main_layout.addWidget(scroll_area)
         
-        # Styled button box
+
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         button_box.setStyleSheet(f"""
             QDialogButtonBox {{
@@ -720,14 +644,13 @@ class EditUserDialog(QDialog):
                 lb_text = self.fields["Weight_LB"].text().strip()
                 if lb_text and lb_text != "":
                     lb_value = float(lb_text)
-                    kg_value = lb_value / CONVERSION_FACTOR_LB_TO_KG
-                    # Temporarily disconnect the signal to avoid recursion
+                    kg_value = convert_lb_to_kg(lb_value)
+
                     self.fields["Weight_KG"].textChanged.disconnect()
                     self.fields["Weight_KG"].setText(f"{kg_value:.1f}")
-                    # Reconnect the signal
+
                     self.fields["Weight_KG"].textChanged.connect(self._convert_kg_to_lb)
         except (ValueError, TypeError):
-            # If conversion fails, just ignore (user might be typing)
             pass
     
     def _convert_kg_to_lb(self):
@@ -737,14 +660,13 @@ class EditUserDialog(QDialog):
                 kg_text = self.fields["Weight_KG"].text().strip()
                 if kg_text and kg_text != "":
                     kg_value = float(kg_text)
-                    lb_value = kg_value * CONVERSION_FACTOR_LB_TO_KG
-                    # Temporarily disconnect the signal to avoid recursion
+                    lb_value = convert_kg_to_lb(kg_value)
+
                     self.fields["Weight_LB"].textChanged.disconnect()
                     self.fields["Weight_LB"].setText(f"{lb_value:.1f}")
-                    # Reconnect the signal
+
                     self.fields["Weight_LB"].textChanged.connect(self._convert_lb_to_kg)
         except (ValueError, TypeError):
-            # If conversion fails, just ignore (user might be typing)
             pass
     
     def get_user_data(self):
@@ -754,9 +676,12 @@ class EditUserDialog(QDialog):
                 data[col] = widget.currentText()
             else:
                 data[col] = widget.text()
+        data["DOTS"] = ""  # Will be calculated later
         data["Wilks"] = ""  # Will be calculated later
+        data["Wilks2"] = ""  # Will be calculated later
+        data["IPF"] = ""  # Will be calculated later
+        data["IPF_GL"] = ""  # Will be calculated later
         return data
-
 
 class BarbellCalculator(QMainWindow):
     def __init__(self):
@@ -767,12 +692,13 @@ class BarbellCalculator(QMainWindow):
         self.setMinimumSize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
 
-        # Initialize image cache for performance optimization
         self._image_cache = {}
         self._static_image_cache = {}
         self._current_combined_pixmap = None
+        
+        # Initialize theme manager
+        self.theme_manager = ThemeManager()
 
-        # Create temporary central widget for initial setup
         self.central_widget = QWidget()
         self.layout = QVBoxLayout(self.central_widget)
         self.central_widget.setStyleSheet(f"""
@@ -780,7 +706,6 @@ class BarbellCalculator(QMainWindow):
             color: {COLOR2};
         """)
 
-        # Set global stylesheet for better visibility
         self.setStyleSheet(f"""
             QGroupBox {{
                 background-color: {COLOR1};
@@ -857,40 +782,43 @@ class BarbellCalculator(QMainWindow):
         self.current_weight_lb, self.current_weight_kg = list(BARBELL_TYPES.values())[0]
         self.rounding_enabled = False
 
-        # Main layout: Create a horizontal splitter for resizable panes
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.setCentralWidget(self.splitter)
 
-        # Left/main pane
         self.left_widget = QWidget()
         self.left_layout = QVBoxLayout(self.left_widget)
         self.layout = self.left_layout  # For compatibility with existing code
         self.splitter.addWidget(self.left_widget)
 
-        # Setup the main content in the left pane
         self.setup_header()
         self.setup_main_frame()
+        
+        # Initialize default theme and set up theme controls
+        self.theme_var = ""  # Initialize theme variable
+        self.theme_filter_var = "All"  # Initialize filter variable
         self.setup_theme_controls()
         self.set_default_theme()
+        
+        # Apply initial theme
+        self.apply_theme()
 
-        # Right/user pane - now integrated into the main window
         self.setup_user_pane()
         self.splitter.addWidget(self.user_pane_container)
         
-        # Start with user pane hidden
+
         self.user_pane_container.setVisible(False)
         
-        # Set initial splitter proportions (70% main, 30% user pane)
+
         self.splitter.setSizes([700, 300])
         
-        # Allow both panes to be resized
+
         self.splitter.setChildrenCollapsible(False)  # Prevent completely collapsing panes
         
-        # Set minimum widths for both panes
+
         self.left_widget.setMinimumWidth(400)
         self.user_pane_container.setMinimumWidth(300)
         
-        # Style the splitter handle for better visibility
+
         self.splitter.setStyleSheet(f"""
             QSplitter::handle {{
                 background-color: {COLOR_BORDER};
@@ -905,14 +833,6 @@ class BarbellCalculator(QMainWindow):
                 background-color: {COLOR3};
             }}
         """)
-
-        # Remove the separate user pane window setup
-        # self.user_pane_window = UserPaneWindow(self.user_pane_container, parent=self)
-        # self.user_pane_window.hide()
-
-        # Remove the toggle button since the pane is now always visible and resizable
-        # self.toggle_right_pane_btn = QPushButton()
-        # ... (all toggle button code removed)
 
         self.enlarged_image_window = None  # Track enlarged image window
 
@@ -930,7 +850,6 @@ class BarbellCalculator(QMainWindow):
         author_label.setFont(QFont(FONT[0], 10))
         author_label.setStyleSheet(f"color: {COLOR2};")
 
-        # Toggle title button (Show/Hide Title)
         self.toggle_title_btn = QPushButton("👁️ Hide Title")
         self.toggle_title_btn.setCheckable(True)
         self.toggle_title_btn.setChecked(False)  # Start with title visible
@@ -965,7 +884,6 @@ class BarbellCalculator(QMainWindow):
             }}
         """)
 
-        # Toggle user pane button
         self.toggle_user_pane_btn = QPushButton("👥 Show")
         self.toggle_user_pane_btn.setCheckable(True)
         self.toggle_user_pane_btn.setChecked(False)  # Start with users pane hidden
@@ -1000,7 +918,6 @@ class BarbellCalculator(QMainWindow):
             }}
         """)
 
-        # Exit button in header
         self.exit_button = QPushButton("🚪 Exit")
         self.exit_button.clicked.connect(self.exit_all)
         self.exit_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
@@ -1028,13 +945,138 @@ class BarbellCalculator(QMainWindow):
             }}
         """)
 
+        # Create tools dropdown menu
+        self.tools_btn = QPushButton("🛠️ Tools")
+        self.tools_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.tools_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                    stop:0 {COLOR_WARNING}, stop:1 #e65100);
+                color: white;
+                border: 2px solid #f57c00;
+                border-radius: 12px;
+                padding: 8px 16px;
+                font-weight: bold;
+                font-size: 12px;
+                margin: 0 8px;
+                min-width: 80px;
+            }}
+            QPushButton:hover {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                    stop:0 #ffb74d, stop:1 #f57c00);
+                border: 2px solid #ffb74d;
+            }}
+            QPushButton:pressed {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                    stop:0 #e65100, stop:1 #bf360c);
+            }}
+        """)
+        
+        # Create tools menu
+        tools_menu = QMenu(self)
+        tools_menu.setStyleSheet(f"""
+            QMenu {{
+                background-color: {COLOR1};
+                border: 2px solid {COLOR3};
+                border-radius: 8px;
+                padding: 4px;
+                min-width: 150px;
+            }}
+            QMenu::item {{
+                background-color: transparent;
+                color: {COLOR2};
+                padding: 8px 12px;
+                margin: 2px;
+                border-radius: 4px;
+            }}
+            QMenu::item:selected {{
+                background-color: {COLOR3};
+                color: {COLOR1};
+            }}
+        """)
+
+        # Add menu actions
+        stopwatch_action = tools_menu.addAction("⏱️ Stopwatch")
+        stopwatch_action.triggered.connect(self.open_stopwatch)
+
+        timer_action = tools_menu.addAction("⏲️ Timer")
+        timer_action.triggered.connect(self.open_timer)
+
+        tools_menu.addSeparator()
+
+        # Rules submenu
+        from PyQt6.QtGui import QDesktopServices
+        from PyQt6.QtCore import QUrl
+        rules_menu = QMenu("📋 Rules", self)
+        rules_menu.setStyleSheet(f"""
+            QMenu {{
+                background-color: {COLOR1};
+                border: 2px solid {COLOR3};
+                border-radius: 8px;
+                padding: 4px;
+                min-width: 200px;
+            }}
+            QMenu::item {{
+                background-color: transparent;
+                color: {COLOR2};
+                padding: 8px 12px;
+                margin: 2px;
+                border-radius: 4px;
+            }}
+            QMenu::item:selected {{
+                background-color: {COLOR3};
+                color: {COLOR1};
+            }}
+        """)
+        federation_urls = {
+            "IPF (International)": "https://www.powerlifting.sport/rules/codes/info/technical-rules",
+            "USAPL": "https://powerlifting-ipl.com/wp-content/uploads/2025/05/2025-IPL-RULEBOOK.pdf",
+            "RPS": "https://www.revolutionpowerlifting.com/rulebook/",
+            "SPF": "https://www.southernpowerlifting.com/spf-rule-book/",
+            "IPA": "https://ipapower.com/ipa-rules/",
+            "NASA": "https://nasa-sports.com/rulebook/"
+        }
+        for fed, url in federation_urls.items():
+            action = rules_menu.addAction(fed)
+            action.triggered.connect(lambda checked, u=url: QDesktopServices.openUrl(QUrl(u)))
+        tools_menu.addMenu(rules_menu)
+
+        self.tools_btn.setMenu(tools_menu)
+
+        # Create theme cycling button
+        self.theme_btn = QPushButton("🎨 Theme")
+        self.theme_btn.clicked.connect(self.cycle_theme)
+        self.theme_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.theme_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                    stop:0 #9c27b0, stop:1 #6a1b9a);
+                color: white;
+                border: 2px solid #7b1fa2;
+                border-radius: 12px;
+                padding: 8px 16px;
+                font-weight: bold;
+                font-size: 12px;
+                margin: 0 8px;
+                min-width: 80px;
+            }}
+            QPushButton:hover {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                    stop:0 #ba68c8, stop:1 #9c27b0);
+                border: 2px solid #ba68c8;
+            }}
+            QPushButton:pressed {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                    stop:0 #6a1b9a, stop:1 #4a148c);
+            }}
+        """)
+
         github_label = QLabel('<a href="#">GitHub Repository</a>')
         github_label.setFont(QFont(FONT[0], 10, QFont.Weight.Bold))
         github_label.setStyleSheet("color: blue; text-decoration: underline;")
         github_label.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         github_label.linkActivated.connect(self.open_github)
 
-        # Create a vertical container for GitHub and Author on the right side
         right_info_widget = QWidget()
         right_info_layout = QVBoxLayout(right_info_widget)
         right_info_layout.setContentsMargins(0, 0, 0, 0)
@@ -1042,9 +1084,11 @@ class BarbellCalculator(QMainWindow):
         right_info_layout.addWidget(github_label, alignment=Qt.AlignmentFlag.AlignRight)
         right_info_layout.addWidget(author_label, alignment=Qt.AlignmentFlag.AlignRight)
 
-        # Add widgets to header: Exit (left), Toggle Title + Toggle Users (center), GitHub+Author (right)
+        # Layout: [Exit] [Theme] [Stretch] [Tools] [Title] [Users] [Stretch] [Info]
         header_layout.addWidget(self.exit_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        header_layout.addWidget(self.theme_btn, alignment=Qt.AlignmentFlag.AlignLeft)
         header_layout.addStretch(1)
+        header_layout.addWidget(self.tools_btn, alignment=Qt.AlignmentFlag.AlignCenter)
         header_layout.addWidget(self.toggle_title_btn, alignment=Qt.AlignmentFlag.AlignCenter)
         header_layout.addWidget(self.toggle_user_pane_btn, alignment=Qt.AlignmentFlag.AlignCenter)
         header_layout.addStretch(1)
@@ -1071,7 +1115,6 @@ class BarbellCalculator(QMainWindow):
         """)
         self.layout.addWidget(main_widget)
 
-        # Create a title container that can collapse when hidden
         self.title_container = QWidget()
         self.title_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         title_container_layout = QHBoxLayout(self.title_container)
@@ -1080,7 +1123,7 @@ class BarbellCalculator(QMainWindow):
         
 
         
-        # Add title at the center
+
         self.title_label = EditableLabel("Bar Tracker")
         self.title_label.setFont(QFont(FONT[0], 24, QFont.Weight.Bold))
         self.title_label.setStyleSheet(f"""
@@ -1098,7 +1141,6 @@ class BarbellCalculator(QMainWindow):
         
         main_layout.addWidget(self.title_container, 0, 0, 1, 3)
 
-        # Create centered weight display container
         weight_container = QWidget()
         weight_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         weight_layout = QVBoxLayout(weight_container)
@@ -1106,7 +1148,6 @@ class BarbellCalculator(QMainWindow):
         weight_layout.setSpacing(5)
         weight_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Weight label
         self.current_weight_label = QLabel(f"{self.current_weight_lb} lbs / {self.current_weight_kg} kg")
         self.current_weight_label.setFont(QFont(FONT[0], 16, QFont.Weight.Bold))
         self.current_weight_label.setStyleSheet(f"color: {COLOR2};")
@@ -1121,7 +1162,6 @@ class BarbellCalculator(QMainWindow):
         
         main_layout.addWidget(weight_container, 1, 1)
 
-        # Weight unit controls
         unit_group = QGroupBox("Weight Units")
         unit_layout = QHBoxLayout(unit_group)
         self.weight_unit_group = QButtonGroup(self)
@@ -1140,7 +1180,6 @@ class BarbellCalculator(QMainWindow):
         self.kg_radio.toggled.connect(self.update_weight_buttons)
         self.st_radio.toggled.connect(self.update_weight_buttons)
 
-        # Rounding controls
         rounding_group = QGroupBox("Rounding Options")
         rounding_layout = QVBoxLayout(rounding_group)
         self.rounding_checkbox = QCheckBox("Enable Rounding to 2.5")
@@ -1148,7 +1187,6 @@ class BarbellCalculator(QMainWindow):
         rounding_layout.addWidget(self.rounding_checkbox)
         main_layout.addWidget(rounding_group, 1, 2)
 
-        # Add/subtract buttons
         self.add_buttons_widget = QWidget()
         self.add_buttons_layout = QHBoxLayout(self.add_buttons_widget)
         self.add_buttons_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -1189,7 +1227,6 @@ class BarbellCalculator(QMainWindow):
         self.lb_radio_theme.toggled.connect(lambda: self.set_theme_filter("lb_"))
         self.other_radio.toggled.connect(lambda: self.set_theme_filter("Other"))
 
-        # Theme listbox with scrollbar, limited to 5 visible items
         from PyQt6.QtWidgets import QScrollArea
 
         theme_listbox_container = QScrollArea()
@@ -1249,46 +1286,29 @@ class BarbellCalculator(QMainWindow):
         self.load_themes()
 
     def load_themes(self):
-        base_path = os.path.dirname(__file__)
-        theme_path = os.path.join(base_path, THEME_PATH)
-        if os.path.exists(theme_path):
-            themes = [folder for folder in os.listdir(theme_path) if os.path.isdir(os.path.join(theme_path, folder))]
-        else:
-            self.display_message(f"{THEME_PATH} folder not found.")
-            themes = []
-        self.lb_themes = [theme for theme in themes if theme.startswith("lb_")]
-        self.kg_themes = [theme for theme in themes if theme.startswith("kg_")]
-        self.other_themes = [theme for theme in themes if not (theme.startswith("lb_") or theme.startswith("kg_"))]
-        self.all_themes = self.lb_themes + self.kg_themes + self.other_themes
+        theme_data = load_available_themes(THEME_PATH)
+        self.lb_themes = theme_data["lb"]
+        self.kg_themes = theme_data["kg"]  
+        self.other_themes = theme_data["other"]
+        self.all_themes = theme_data["all"]
         self.theme_listbox.clear()
         for theme in self.all_themes:
             self.theme_listbox.addItem(theme)
 
     def setup_user_pane(self):
-        # Collapsible container
+
         self.user_pane_container = QWidget()
         self.user_pane_layout = QVBoxLayout(self.user_pane_container)
-        # Remove fixed/minimum/maximum width to allow expansion
-        # self.user_pane_container.setMaximumWidth(220)
-        # self.user_pane_container.setMinimumWidth(120)
+
         self.user_pane_container.setStyleSheet(f"background-color: {COLOR1}; border-left: 2px solid {COLOR_BORDER};")
         self.user_pane_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-        # Remove collapse/expand button
-        # self.collapse_btn = QPushButton("⯈ Users")
-        # self.collapse_btn.setCheckable(True)
-        # self.collapse_btn.setChecked(True)
-        # self.collapse_btn.clicked.connect(self.toggle_user_pane)
-        # self.user_pane_layout.addWidget(self.collapse_btn)
-
-        # Filter and sort controls
         filter_sort_layout = QHBoxLayout()
         self.user_filter_entry = QLineEdit()
         self.user_filter_entry.setPlaceholderText("Filter users...")
         self.user_filter_entry.textChanged.connect(self.filter_and_sort_users)
         filter_sort_layout.addWidget(self.user_filter_entry)
 
-        # Add refresh, import, and export buttons
         self.refresh_btn = QPushButton("🔄 Refresh")
         self.refresh_btn.clicked.connect(self.refresh_users)
         self.refresh_btn.setStyleSheet(f"""
@@ -1315,7 +1335,6 @@ class BarbellCalculator(QMainWindow):
         """)
         filter_sort_layout.addWidget(self.refresh_btn)
 
-        # --- Add Import button ---
         self.import_btn = QPushButton("📥 Import")
         self.import_btn.setToolTip("Import users from a CSV file (replaces current users)")
         self.import_btn.clicked.connect(self.import_users_from_csv)
@@ -1342,7 +1361,6 @@ class BarbellCalculator(QMainWindow):
             }}
         """)
         filter_sort_layout.addWidget(self.import_btn)
-        # -------------------------
 
         self.export_btn = QPushButton("📤 Export")
         self.export_btn.clicked.connect(self.export_users)
@@ -1370,25 +1388,22 @@ class BarbellCalculator(QMainWindow):
         """)
         filter_sort_layout.addWidget(self.export_btn)
 
-        # Update: Add new columns for lifts
         self.user_columns = [
             "First", "Last", "Age", "Weight_LB", "Weight_KG", "Sex",
             *LIFT_COLS,
-            "Total", "Wilks"
+            "Total", "DOTS", "Wilks", "Wilks2", "IPF", "IPF_GL"
         ]
 
-        # Update sort combo to include new columns
         self.sort_combo = QComboBox()
         self.sort_combo.addItems([
             "First", "Last", "Age", "Weight_LB", "Weight_KG", "Sex",
             *LIFT_COLS,
-            "Total", "Wilks"
+            "Total", "DOTS", "Wilks", "Wilks2", "IPF", "IPF_GL"
         ])
         self.sort_combo.currentIndexChanged.connect(self.filter_and_sort_users)
         filter_sort_layout.addWidget(self.sort_combo)
         self.user_pane_layout.addLayout(filter_sort_layout)
 
-        # Add/Remove user buttons
         btns_layout = QHBoxLayout()
         self.add_user_btn = QPushButton("➕ Add")
         self.add_user_btn.clicked.connect(self.open_add_user_dialog)
@@ -1443,7 +1458,7 @@ class BarbellCalculator(QMainWindow):
         """)
         btns_layout.addWidget(self.remove_user_btn)
         
-        # Add confirmation checkbox next to remove button
+
         self.confirm_remove_checkbox = QCheckBox("Confirm before removing")
         self.confirm_remove_checkbox.setChecked(True)  # Default to confirming
         self.confirm_remove_checkbox.setStyleSheet(f"""
@@ -1455,10 +1470,10 @@ class BarbellCalculator(QMainWindow):
         """)
         btns_layout.addWidget(self.confirm_remove_checkbox)
         
-        # Add stretch to push purge button to the right
+
         btns_layout.addStretch(1)
         
-        # --- Add Purge button (smaller, dark red border) ---
+
         self.purge_btn = QPushButton("Purge")
         self.purge_btn.setFixedWidth(60)
         self.purge_btn.setStyleSheet(
@@ -1477,29 +1492,11 @@ class BarbellCalculator(QMainWindow):
         )
         self.purge_btn.clicked.connect(self.purge_users)
         btns_layout.addWidget(self.purge_btn)
-        # --- Remove Load button ---
-        # self.load_btn = QPushButton("Load")
-        # self.load_btn.setFixedWidth(60)
-        # self.load_btn.setStyleSheet(
-        #     "QPushButton {"
-        #     "  border: 2px solid #228B22;"
-        #     "  color: #228B22;"
-        #     "  background-color: #eaffea;"
-        #     "  border-radius: 6px;"
-        #     "  font-weight: bold;"
-        #     "  padding: 2px 6px;"
-        #     "}"
-        #     "QPushButton:hover {"
-        #     "  background-color: #d0ffd0;"
-        #     "  border: 2.5px solid #228B22;"
-        #     "}"
-        # )
-        # self.load_btn.clicked.connect(self.load_users_from_csv_file)
-        # btns_layout.addWidget(self.load_btn)
-        # ---------------------------------------------------
+
+
+
         self.user_pane_layout.addLayout(btns_layout)
 
-        # User table
         self.users = self.load_users_from_csv()
         self.filtered_sorted_users = self.users.copy()
         self.current_user_idx = 0
@@ -1510,9 +1507,7 @@ class BarbellCalculator(QMainWindow):
         self.user_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.user_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.user_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        # Remove fixed maximum height and width so it expands with window
-        # self.user_table.setMaximumHeight(160)
-        # self.user_pane_container.setMaximumWidth(220)
+
         self.user_table.setMinimumHeight(300)  # Set larger default minimum height
         self.user_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.user_pane_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -1520,17 +1515,16 @@ class BarbellCalculator(QMainWindow):
         self.user_table.setShowGrid(True)
         self.user_table.setStyleSheet(f"background-color: {COLOR1}; color: {COLOR2};")
         self.user_table.itemSelectionChanged.connect(self.on_user_table_selected)
-        # --- Enable column resizing and moving ---
+
         self.user_table.horizontalHeader().setSectionsMovable(True)
         self.user_table.horizontalHeader().setSectionsClickable(True)
         self.user_table.horizontalHeader().setStretchLastSection(False)
         self.user_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        # --- Connect double click to open edit dialog ---
+
         self.user_table.cellDoubleClicked.connect(self.open_edit_user_dialog)
-        # -------------------------------------------------
+
         self.user_pane_layout.addWidget(self.user_table, stretch=1)  # Make table expand
 
-        # User detail group
         self.user_detail_group = QGroupBox("Current User")
         self.user_detail_group.setStyleSheet("QGroupBox::title { font-weight: bold; }")
         self.user_detail_group.setMaximumWidth(400)
@@ -1541,7 +1535,6 @@ class BarbellCalculator(QMainWindow):
         self.user_detail_layout.addWidget(self.user_name_label)
         self.user_detail_layout.addWidget(self.user_stats_label)
 
-        # Add: Table for lifts
         self.lifts_table = QTableWidget(3, 3)
         self.lifts_table.setHorizontalHeaderLabels(["Squat", "Bench", "Deadlift"])
         self.lifts_table.setVerticalHeaderLabels(["1", "2", "3"])
@@ -1553,7 +1546,6 @@ class BarbellCalculator(QMainWindow):
 
         self.user_pane_layout.addWidget(self.user_detail_group)
 
-        # Next user preview (remove Age)
         self.next_user_group = QGroupBox("Up Next,")
         self.next_user_group.setStyleSheet("QGroupBox::title { font-weight: bold; }")
         self.next_user_group.setMaximumWidth(200)
@@ -1562,7 +1554,6 @@ class BarbellCalculator(QMainWindow):
         self.next_user_layout.addWidget(self.next_user_label)
         self.user_pane_layout.addWidget(self.next_user_group)
 
-        # Next button with arrow icon/character
         btn_layout = QHBoxLayout()
         self.prev_btn = QPushButton("⬅️ Prev")
         self.prev_btn.clicked.connect(self.prev_user)
@@ -1617,10 +1608,8 @@ class BarbellCalculator(QMainWindow):
         btn_layout.addWidget(self.next_btn)
         self.user_pane_layout.addLayout(btn_layout)
 
-        # --- Add a stretch to push everything above up, so the bar aligns with the prev/next buttons ---
         self.user_pane_layout.addStretch(1)
 
-        # Initialize display
         self.populate_user_table()
         if self.filtered_sorted_users:
             self.user_table.selectRow(0)
@@ -1632,41 +1621,17 @@ class BarbellCalculator(QMainWindow):
         prev_idx = (self.current_user_idx - 1) % len(self.filtered_sorted_users)
         self.display_user(prev_idx)
 
-    def compute_wilks(self, sex: str, bodyweight_kg: str, total_kg: float) -> str:
-        """Compute Wilks score for powerlifting."""
-        return compute_wilks(sex, bodyweight_kg, total_kg)
 
-    def update_all_wilks(self):
-        for user in self.users:
-            try:
-                sex = user.get("Sex", "")
-                bw = user.get("Weight_KG", "")
-                squat = float(user.get("Squat3", 0) or 0)
-                bench = float(user.get("Bench3", 0) or 0)
-                deadlift = float(user.get("Deadlift3", 0) or 0)
-                total = squat + bench + deadlift
-                user["Total"] = str(total) if total > 0 else ""
-                user["Wilks"] = self.compute_wilks(sex, bw, total)
-            except Exception:
-                user["Total"] = ""
-                user["Wilks"] = ""
-        # Also update filtered_sorted_users
-        for user in self.filtered_sorted_users:
-            try:
-                sex = user.get("Sex", "")
-                bw = user.get("Weight_KG", "")
-                squat = float(user.get("Squat3", 0) or 0)
-                bench = float(user.get("Bench3", 0) or 0)
-                deadlift = float(user.get("Deadlift3", 0) or 0)
-                total = squat + bench + deadlift
-                user["Total"] = str(total) if total > 0 else ""
-                user["Wilks"] = self.compute_wilks(sex, bw, total)
-            except Exception:
-                user["Total"] = ""
-                user["Wilks"] = ""
+    def compute_dots(self, sex: str, bodyweight_kg: str, total_kg: float) -> str:
+        """Compute DOTS score for powerlifting."""
+        return compute_dots(sex, bodyweight_kg, total_kg)
+
+    def update_all_scores(self):
+        update_user_scores(self.users)
+        update_user_scores(self.filtered_sorted_users)
 
     def populate_user_table(self):
-        self.update_all_wilks()
+        self.update_all_scores()
         self.user_table.setRowCount(len(self.filtered_sorted_users))
         for row, user in enumerate(self.filtered_sorted_users):
             for col, key in enumerate(self.user_columns):
@@ -1675,22 +1640,9 @@ class BarbellCalculator(QMainWindow):
     def filter_and_sort_users(self):
         filter_text = self.user_filter_entry.text().lower()
         sort_key = self.sort_combo.currentText()
-        self.update_all_wilks()
-        self.filtered_sorted_users = [
-            user for user in self.users
-            if any(filter_text in str(value).lower() for value in user.values())
-        ]
-        # Sort
-        if sort_key in ["Age", "Weight_LB", "Weight_KG",
-                        "Bench1", "Bench2", "Bench3",
-                        "Squat1", "Squat2", "Squat3",
-                        "Deadlift1", "Deadlift2", "Deadlift3", "Total", "Wilks"]:
-            try:
-                self.filtered_sorted_users.sort(key=lambda u: float(u.get(sort_key, 0) or 0))
-            except Exception:
-                self.filtered_sorted_users.sort(key=lambda u: u.get(sort_key, ""))
-        else:
-            self.filtered_sorted_users.sort(key=lambda u: u.get(sort_key, ""))
+        self.update_all_scores()
+        self.filtered_sorted_users = filter_users_text(self.users, filter_text)
+        self.filtered_sorted_users = sort_users_by_column(self.filtered_sorted_users, sort_key)
         self.populate_user_table()
         if self.filtered_sorted_users:
             self.user_table.selectRow(0)
@@ -1699,7 +1651,7 @@ class BarbellCalculator(QMainWindow):
             self.user_name_label.setText("No users")
             self.user_stats_label.setText("")
             self.next_user_label.setText("")
-            # Clear lifts table
+
             for i in range(3):
                 for j in range(3):
                     item = QTableWidgetItem("")
@@ -1711,7 +1663,7 @@ class BarbellCalculator(QMainWindow):
             self.user_name_label.setText("No users")
             self.user_stats_label.setText("")
             self.next_user_label.setText("")
-            # Clear lifts table
+
             for i in range(3):
                 for j in range(3):
                     item = QTableWidgetItem("")
@@ -1719,7 +1671,7 @@ class BarbellCalculator(QMainWindow):
                     self.lifts_table.setItem(i, j, item)
             return
         user = self.filtered_sorted_users[idx]
-        # Use .get() for all fields to avoid KeyError
+
         first = user.get('First', '')
         last = user.get('Last', '')
         sex = user.get('Sex', '')
@@ -1729,7 +1681,7 @@ class BarbellCalculator(QMainWindow):
         self.user_stats_label.setText(
             f"BodyWeight: {weight_lb} lbs / {weight_kg} kg"
         )
-        # Fill lifts table
+
         for i, lift in enumerate(["Squat", "Bench", "Deadlift"]):
             for j in range(1, 4):
                 key = f"{lift}{j}"
@@ -1737,7 +1689,7 @@ class BarbellCalculator(QMainWindow):
                 item = QTableWidgetItem(value)
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.lifts_table.setItem(j-1, i, item)
-        # Next user preview (remove Age)
+
         next_idx = (idx + 1) % len(self.filtered_sorted_users)
         next_user = self.filtered_sorted_users[next_idx]
         next_first = next_user.get('First', '')
@@ -1755,73 +1707,10 @@ class BarbellCalculator(QMainWindow):
         self.display_user(next_idx)
 
     def load_users_from_csv(self):
-        users = []
-        base_path = resource_path("")
-        data_dir = os.path.join(base_path, "data")
-        csv_path = os.path.join(data_dir, "users.csv")
-        if not os.path.exists(data_dir):
-            os.makedirs(data_dir, exist_ok=True)
-        if not os.path.exists(csv_path):
-            example_users = [
-                {"First": "Alice", "Last": "Example1", "Age": "28", "Weight_LB": "135", "Weight_KG": "61.2", "Sex": "Female",
-                 "Bench1": "80", "Bench2": "85", "Bench3": "90",
-                 "Squat1": "120", "Squat2": "125", "Squat3": "130",
-                 "Deadlift1": "150", "Deadlift2": "155", "Deadlift3": "160"},
-                {"First": "Bob", "Last": "Example2", "Age": "34", "Weight_LB": "185", "Weight_KG": "83.9", "Sex": "Male",
-                 "Bench1": "110", "Bench2": "115", "Bench3": "120",
-                 "Squat1": "180", "Squat2": "185", "Squat3": "190",
-                 "Deadlift1": "210", "Deadlift2": "215", "Deadlift3": "220"},
-                {"First": "Carol", "Last": "Example3", "Age": "22", "Weight_LB": "120", "Weight_KG": "54.4", "Sex": "Female",
-                 "Bench1": "60", "Bench2": "65", "Bench3": "70",
-                 "Squat1": "100", "Squat2": "105", "Squat3": "110",
-                 "Deadlift1": "130", "Deadlift2": "135", "Deadlift3": "140"},
-                {"First": "David", "Last": "Example4", "Age": "40", "Weight_LB": "200", "Weight_KG": "90.7", "Sex": "Male",
-                 "Bench1": "120", "Bench2": "125", "Bench3": "130",
-                 "Squat1": "200", "Squat2": "205", "Squat3": "210",
-                 "Deadlift1": "230", "Deadlift2": "235", "Deadlift3": "240"},
-            ]
-            for user in example_users:
-                try:
-                    sex = user.get("Sex", "")
-                    bw = user.get("Weight_KG", "")
-                    squat = float(user.get("Squat3", 0) or 0)
-                    bench = float(user.get("Bench3", 0) or 0)
-                    deadlift = float(user.get("Deadlift3", 0) or 0)
-                    total = squat + bench + deadlift
-                    user["Total"] = str(total) if total > 0 else ""
-                    user["Wilks"] = self.compute_wilks(sex, bw, total)
-                except Exception:
-                    user["Total"] = ""
-                    user["Wilks"] = ""
-            with open(csv_path, "w", newline='', encoding='utf-8') as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=[
-                    "First", "Last", "Age", "Weight_LB", "Weight_KG", "Sex",
-                    *LIFT_COLS,
-                    "Total", "Wilks"
-                ])
-                writer.writeheader()
-                for user in example_users:
-                    writer.writerow(user)
-        if os.path.exists(csv_path):
-            with open(csv_path, newline='', encoding='utf-8') as csvfile:
-                reader = csv.DictReader(csvfile)
-                for row in reader:
-                    for col in [*LIFT_COLS, "Total", "Wilks"]:
-                        if col not in row:
-                            row[col] = ""
-                    users.append(row)
-        return users
+        return load_users_from_csv()
 
     def load_judge_scores(self):
-        base_path = resource_path("")
-        judge_csv = os.path.join(base_path, "data", "judge_scores.csv")
-        scores = []
-        if os.path.exists(judge_csv):
-            with open(judge_csv, newline='', encoding='utf-8') as csvfile:
-                reader = csv.DictReader(csvfile)
-                for row in reader:
-                    scores.append(row)
-        return scores
+        return load_judge_scores()
 
     def save_judge_scores(self):
         base_path = resource_path("")
@@ -1832,7 +1721,7 @@ class BarbellCalculator(QMainWindow):
             with open(judge_csv, "w", newline='', encoding='utf-8') as csvfile:
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
                 writer.writeheader()
-                # Write example scores for testing
+
                 for user in self.filtered_sorted_users:
                     writer.writerow({"User": f"{user.get('First')} {user.get('Last')}", "Judge": "Judge1", "Score": "9"})
                     writer.writerow({"User": f"{user.get('First')} {user.get('Last')}", "Judge": "Judge2", "Score": "8"})
@@ -1842,12 +1731,12 @@ class BarbellCalculator(QMainWindow):
     def toggle_user_pane(self):
         """Toggle visibility of the user management pane."""
         if self.toggle_user_pane_btn.isChecked():
-            # Show the user pane
+
             self.user_pane_container.setVisible(True)
             self.toggle_user_pane_btn.setText("👥 Users")
             self.toggle_user_pane_btn.setToolTip("Hide user management pane")
         else:
-            # Hide the user pane
+
             self.user_pane_container.setVisible(False)
             self.toggle_user_pane_btn.setText("👥 Show")
             self.toggle_user_pane_btn.setToolTip("Show user management pane")
@@ -1855,33 +1744,33 @@ class BarbellCalculator(QMainWindow):
     def toggle_title_visibility(self):
         """Toggle visibility of the title container to allow layout collapsing."""
         if self.toggle_title_btn.isChecked():
-            # Hide the entire title container
+
             self.title_container.setVisible(False)
             self.toggle_title_btn.setText("👁️ Show Title")
             self.toggle_title_btn.setToolTip("Show title")
         else:
-            # Show the entire title container
+
             self.title_container.setVisible(True)
             self.toggle_title_btn.setText("👁️ Hide Title")
             self.toggle_title_btn.setToolTip("Hide title")
 
     def open_image_in_window(self):
-        # Check if we have a current image to display
+
         if hasattr(self, "_current_combined_pixmap") and self._current_combined_pixmap and not self._current_combined_pixmap.isNull():
-            # If already open, just raise and update
+
             if self.enlarged_image_window and self.enlarged_image_window.isVisible():
                 self._update_enlarged_image_from_pixmap(self._current_combined_pixmap)
                 self.enlarged_image_window.raise_()
                 self.enlarged_image_window.activateWindow()
                 return
             
-            # Create a new window
+
             self.enlarged_image_window = QDialog(self)
             self.enlarged_image_window.setWindowTitle("🔍 Enlarged Barbell Preview")
             self.enlarged_image_window.setMinimumSize(300, 300)
             self.enlarged_image_window.resize(800, 600)
             
-            # Apply styling to match the main window
+
             self.enlarged_image_window.setStyleSheet(f"""
                 QDialog {{
                     background-color: {COLOR1};
@@ -1896,12 +1785,12 @@ class BarbellCalculator(QMainWindow):
                 }}
             """)
             
-            # Create layout
+
             vbox = QVBoxLayout(self.enlarged_image_window)
             vbox.setContentsMargins(20, 20, 20, 20)
             vbox.setSpacing(10)
             
-            # Add title label
+
             title_label = QLabel("Barbell Configuration Preview")
             title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             title_label.setStyleSheet(f"""
@@ -1916,14 +1805,14 @@ class BarbellCalculator(QMainWindow):
             """)
             vbox.addWidget(title_label)
             
-            # Create image label
+
             self.enlarged_image_label = QLabel()
             self.enlarged_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.enlarged_image_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             self.enlarged_image_label.setMinimumSize(280, 280)
             vbox.addWidget(self.enlarged_image_label)
             
-            # Add weight info label
+
             self.enlarged_weight_label = QLabel(f"Weight: {self.current_weight_lb} lbs / {self.current_weight_kg} kg")
             self.enlarged_weight_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.enlarged_weight_label.setStyleSheet(f"""
@@ -1938,24 +1827,24 @@ class BarbellCalculator(QMainWindow):
             """)
             vbox.addWidget(self.enlarged_weight_label)
             
-            # Update the image
+
             self._update_enlarged_image_from_pixmap(self._current_combined_pixmap)
             self.enlarged_image_window.setModal(False)
             
-            # Add resize event to update image scaling
+
             self.enlarged_image_window.resizeEvent = self._enlarged_image_resize_event
             self.enlarged_image_window.show()
         else:
             self.display_message("No image available to enlarge. Please select a theme and weight first.")
 
     def _enlarged_image_resize_event(self, event):
-        # Called on enlarged image window resize
+
         if (hasattr(self, "enlarged_image_label") and self.enlarged_image_label and 
             hasattr(self, "_current_combined_pixmap") and self._current_combined_pixmap and 
             not self._current_combined_pixmap.isNull()):
             self._update_enlarged_image_from_pixmap(self._current_combined_pixmap)
             
-            # Update weight label if it exists
+
             if hasattr(self, "enlarged_weight_label") and self.enlarged_weight_label:
                 self.enlarged_weight_label.setText(f"Weight: {self.current_weight_lb} lbs / {self.current_weight_kg} kg")
         event.accept()
@@ -1963,15 +1852,14 @@ class BarbellCalculator(QMainWindow):
     def _update_enlarged_image_from_pixmap(self, pixmap: QPixmap) -> None:
         """Update enlarged image window from cached pixmap with improved scaling."""
         if hasattr(self, "enlarged_image_label") and self.enlarged_image_label and pixmap and not pixmap.isNull():
-            # Get available space for the image
+
             label_size = self.enlarged_image_label.size()
             
-            # Calculate target size based on the label's actual size
-            # Account for margins and ensure minimum size
+
             target_width = max(label_size.width() - 20, 250)  # 10px margin on each side
             target_height = max(label_size.height() - 20, 250)  # 10px margin on top/bottom
             
-            # If the label hasn't been properly sized yet, use a reasonable default
+
             if target_width < 100 or target_height < 100:
                 if hasattr(self, "enlarged_image_window") and self.enlarged_image_window:
                     window_size = self.enlarged_image_window.size()
@@ -1980,7 +1868,7 @@ class BarbellCalculator(QMainWindow):
                 else:
                     target_width, target_height = 500, 400
             
-            # Scale the pixmap maintaining aspect ratio
+
             scaled_pixmap = pixmap.scaled(
                 target_width, target_height,
                 Qt.AspectRatioMode.KeepAspectRatio, 
@@ -1997,7 +1885,7 @@ class BarbellCalculator(QMainWindow):
         selected_theme = getattr(self, "theme_var", "")
         cache_key = f"{selected_theme}_{image_name}"
         
-        # Check if we already have this combined image in cache
+
         if cache_key in self._image_cache:
             pixmap = self._image_cache[cache_key]
             self._set_image_pixmap(pixmap)
@@ -2012,10 +1900,8 @@ class BarbellCalculator(QMainWindow):
         
         if os.path.exists(image_path):
             try:
-                # Create combined image in memory without file I/O
                 combined_pixmap = self._create_combined_image_pixmap(image_path, selected_theme)
                 if combined_pixmap and not combined_pixmap.isNull():
-                    # Cache the result for future use
                     self._image_cache[cache_key] = combined_pixmap
                     self._set_image_pixmap(combined_pixmap)
                 else:
@@ -2029,60 +1915,15 @@ class BarbellCalculator(QMainWindow):
 
     def _create_combined_image_pixmap(self, image_path: str, selected_theme: str) -> QPixmap:
         """Create combined image pixmap in memory without file I/O."""
-        try:
-            # Load and resize main image
-            with Image.open(image_path) as image:
-                # Use faster nearest neighbor for initial resize, then smooth for final
-                image = image.resize((180, 180), Image.Resampling.NEAREST)
-                inverted_image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-                
-                # Get or create cached static image
-                static_image = self._get_cached_static_image(selected_theme)
-                
-                # Create combined image
-                combined_width = image.width * 2 + static_image.width
-                combined_image = Image.new("RGBA", (combined_width, image.height))
-                combined_image.paste(image, (0, 0))
-                combined_image.paste(static_image, (image.width, 0))
-                combined_image.paste(inverted_image, (image.width + static_image.width, 0))
-                
-                # Convert PIL image directly to QPixmap without saving to disk
-                return self._pil_to_pixmap(combined_image)
-                
-        except Exception as e:
-            print(f"Error creating combined image: {e}")
-            return QPixmap()
+        return create_combined_image_pixmap(image_path, selected_theme, self._static_image_cache)
 
     def _get_cached_static_image(self, selected_theme: str):
         """Get cached static bar image or create and cache it."""
-        if selected_theme in self._static_image_cache:
-            return self._static_image_cache[selected_theme]
-        
-        static_image_path = get_image_path(selected_theme, "bar.png")
-        if os.path.exists(static_image_path):
-            with Image.open(static_image_path) as static_img:
-                # Cache resized static image
-                resized_static = static_img.resize((250, 180), Image.Resampling.NEAREST)
-                self._static_image_cache[selected_theme] = resized_static.copy()
-        else:
-            # Create and cache default static image
-            default_static = Image.new("RGBA", (250, 180), (255, 255, 255, 0))
-            self._static_image_cache[selected_theme] = default_static
-        
-        return self._static_image_cache[selected_theme]
+        return get_cached_static_image(selected_theme, self._static_image_cache)
 
     def _pil_to_pixmap(self, pil_image) -> QPixmap:
         """Convert PIL image to QPixmap without file I/O."""
-        # Convert PIL image to bytes
-        import io
-        byte_array = io.BytesIO()
-        pil_image.save(byte_array, format='PNG')
-        byte_array = byte_array.getvalue()
-        
-        # Create QPixmap from bytes
-        pixmap = QPixmap()
-        pixmap.loadFromData(byte_array)
-        return pixmap
+        return pil_to_pixmap(pil_image)
 
     def _set_image_pixmap(self, pixmap: QPixmap) -> None:
         """Set pixmap to image label with optimized scaling."""
@@ -2095,7 +1936,7 @@ class BarbellCalculator(QMainWindow):
             self.example_image_label.setPixmap(scaled_pixmap)
             self._current_combined_pixmap = pixmap
             
-            # Update enlarged window if visible
+
             if hasattr(self, 'enlarged_image_window') and self.enlarged_image_window and self.enlarged_image_window.isVisible():
                 self._update_enlarged_image_from_pixmap(pixmap)
     
@@ -2103,7 +1944,7 @@ class BarbellCalculator(QMainWindow):
         """Show fallback image when main image is not available."""
         fallback_cache_key = f"{selected_theme}_fallback"
         
-        # Check cache first
+
         if fallback_cache_key in self._image_cache:
             pixmap = self._image_cache[fallback_cache_key]
             self._set_image_pixmap(pixmap)
@@ -2114,7 +1955,6 @@ class BarbellCalculator(QMainWindow):
             try:
                 combined_pixmap = self._create_combined_image_pixmap(fallback_image_path, selected_theme)
                 if combined_pixmap and not combined_pixmap.isNull():
-                    # Cache the fallback image
                     self._image_cache[fallback_cache_key] = combined_pixmap
                     self._set_image_pixmap(combined_pixmap)
                 else:
@@ -2135,7 +1975,7 @@ class BarbellCalculator(QMainWindow):
     def display_message(self, message: str) -> None:
         """Display message to user."""
         self.message_label.setText(message)
-        # Auto-clear message after 5 seconds
+
         if hasattr(self, '_message_timer'):
             self._message_timer.stop()
         self._message_timer = QTimer()
@@ -2145,7 +1985,7 @@ class BarbellCalculator(QMainWindow):
 
     def update_weight_buttons(self) -> None:
         """Update weight increment/decrement buttons based on selected unit."""
-        # Clear existing buttons efficiently
+
         self._clear_layout(self.add_buttons_layout)
         self._clear_layout(self.subtract_buttons_layout)
 
@@ -2156,7 +1996,6 @@ class BarbellCalculator(QMainWindow):
         else:
             increments = []
 
-        # Create buttons with proper slot connections
         for inc in increments:
             btn = QPushButton(f"+{inc}")
             btn.clicked.connect(lambda checked, amount=inc: self.adjust_weight(amount))
@@ -2196,7 +2035,7 @@ class BarbellCalculator(QMainWindow):
             self.current_weight_kg = round(self.current_weight_kg + effective_amount)
             self.current_weight_lb = self.current_weight_kg * CONVERSION_FACTOR_LB_TO_KG
             
-            # Apply weight limits in pounds and convert back
+
             if self.current_weight_lb < min_weight:
                 self.current_weight_lb = min_weight
                 self.current_weight_kg = self.current_weight_lb / CONVERSION_FACTOR_LB_TO_KG
@@ -2205,7 +2044,6 @@ class BarbellCalculator(QMainWindow):
                 self.current_weight_kg = self.current_weight_lb / CONVERSION_FACTOR_LB_TO_KG
         
         self.update_weight()
-        # Remove redundant update_theme_photo call since update_weight handles image updates
 
     def update_weight(self) -> None:
         """Update weight display with proper rounding."""
@@ -2220,7 +2058,7 @@ class BarbellCalculator(QMainWindow):
         rounded_weight_str = f"{int(rounded_weight_lb)}" if rounded_weight_lb.is_integer() else f"{rounded_weight_lb:.1f}"
         self.update_example_image(f"{rounded_weight_str}.png")
         
-        # Update enlarged image window if it's open
+
         if (hasattr(self, 'enlarged_image_window') and self.enlarged_image_window and 
             self.enlarged_image_window.isVisible() and hasattr(self, 'enlarged_weight_label')):
             self.enlarged_weight_label.setText(f"Weight: {rounded_weight_lb:.1f} lbs / {rounded_weight_kg:.1f} kg")
@@ -2242,17 +2080,18 @@ class BarbellCalculator(QMainWindow):
         self.filter_themes()
 
     def filter_themes(self):
-        filter_text = self.theme_filter_entry.text().lower()
-        if self.theme_filter_var == "All":
-            filtered = self.all_themes
-        elif self.theme_filter_var == "Other":
-            filtered = self.other_themes
-        else:
-            filtered = [theme for theme in self.all_themes if theme.startswith(self.theme_filter_var)]
+        filter_text = self.theme_filter_entry.text()
+        theme_data = {
+            "all": self.all_themes,
+            "lb": self.lb_themes,
+            "kg": self.kg_themes,
+            "other": self.other_themes
+        }
+        filtered = filter_themes_by_category(theme_data, self.theme_filter_var)
+        filtered = filter_themes_by_text(filtered, filter_text)
         self.theme_listbox.clear()
         for theme in filtered:
-            if filter_text in theme.lower():
-                self.theme_listbox.addItem(theme)
+            self.theme_listbox.addItem(theme)
 
     def on_theme_change_from_listbox(self):
         item = self.theme_listbox.currentItem()
@@ -2265,10 +2104,10 @@ class BarbellCalculator(QMainWindow):
         if not selected_theme:
             return
         
-        # Clear cache when theme changes to avoid stale images
+
         self._clear_theme_cache()
         
-        # Use the current rounded weight for the preview image
+
         rounding = 2.5 if self.rounding_checkbox.isChecked() else IMAGE_ROUNDING
         rounded_weight_lb = round_weight(self.current_weight_lb, rounding)
         rounded_weight_str = f"{int(rounded_weight_lb)}" if rounded_weight_lb.is_integer() else f"{rounded_weight_lb:.1f}"
@@ -2278,7 +2117,7 @@ class BarbellCalculator(QMainWindow):
         image_path = os.path.join(theme_folder, f"{rounded_weight_str}.png")
         
         if not os.path.exists(image_path):
-            # Try fallback to none.png
+
             fallback_image_path = os.path.join(theme_folder, "none.png")
             if os.path.exists(fallback_image_path):
                 self.update_example_image("none.png")
@@ -2299,24 +2138,21 @@ class BarbellCalculator(QMainWindow):
 
     def showEvent(self, event):
         super().showEvent(event)
-        # No longer need to position toggle button since using splitter
 
     def resizeEvent(self, event):
         """Handle window resize events."""
         super().resizeEvent(event)
-        # No longer need to manage separate window positioning
 
     def moveEvent(self, event):
         super().moveEvent(event)
-        # No longer need to manage separate window positioning
 
     def closeEvent(self, event):
-        # Clean up temporary files before closing
+
         self.cleanup_temp_files()
         super().closeEvent(event)
 
     def exit_all(self):
-        # Clean up temporary files before exiting
+
         self.cleanup_temp_files()
         self.close()
 
@@ -2330,14 +2166,15 @@ class BarbellCalculator(QMainWindow):
         dialog = AddUserDialog(self)
         if dialog.exec():
             user_data = dialog.get_user_data()
-            # Basic validation: require First and Last name
-            if not user_data["First"] or not user_data["Last"]:
-                self.display_message("First and Last name are required.")
+
+            is_valid, error_message = validate_user_data(user_data)
+            if not is_valid:
+                self.display_message(error_message)
                 return
             self.users.append(user_data)
             self.save_users_to_csv()  # Save after adding
             self.filter_and_sort_users()
-            # Select the newly added user
+
             idx = self.filtered_sorted_users.index(user_data)
             self.user_table.selectRow(idx)
             self.display_user(idx)
@@ -2355,9 +2192,9 @@ class BarbellCalculator(QMainWindow):
         user_to_remove = self.filtered_sorted_users[row]
         user_name = f"{user_to_remove.get('First', '')} {user_to_remove.get('Last', '')}"
         
-        # Check if confirmation is enabled
+
         if self.confirm_remove_checkbox.isChecked():
-            # Show confirmation dialog
+
             reply = QMessageBox.question(
                 self,
                 "Confirm User Removal",
@@ -2369,29 +2206,19 @@ class BarbellCalculator(QMainWindow):
             if reply != QMessageBox.StandardButton.Yes:
                 return
         
-        # Remove from self.users
+
         try:
             self.users.remove(user_to_remove)
         except ValueError:
             pass  # Already removed
-        # Save to removed.csv
-        base_path = resource_path("")
-        removed_csv_path = os.path.join(base_path, "data", "removed.csv")
-        os.makedirs(os.path.dirname(removed_csv_path), exist_ok=True)
-        fieldnames = self.user_columns
-        file_exists = os.path.exists(removed_csv_path)
-        try:
-            with open(removed_csv_path, "a", newline='', encoding='utf-8') as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-                if not file_exists:
-                    writer.writeheader()
-                writer.writerow({k: user_to_remove.get(k, "") for k in fieldnames})
-        except Exception as e:
-            self.display_message(f"Error saving to removed.csv: {e}")
-        # Save updated users to users.csv and refresh UI
+        
+
+        save_removed_user(user_to_remove)
+        
+
         self.save_users_to_csv()
         self.filter_and_sort_users()
-        # Select next available user if any
+
         if self.filtered_sorted_users:
             idx = min(row, len(self.filtered_sorted_users) - 1)
             self.user_table.selectRow(idx)
@@ -2402,7 +2229,7 @@ class BarbellCalculator(QMainWindow):
             self.next_user_label.setText("")
 
     def purge_users(self):
-        # Show warning dialog
+
         reply = QMessageBox.warning(
             self,
             "Confirm Purge",
@@ -2411,22 +2238,14 @@ class BarbellCalculator(QMainWindow):
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
-        import datetime
-        base_path = resource_path("")
-        csv_path = os.path.join(base_path, "data", "users.csv")
-        today = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
-        purged_csv_path = os.path.join(base_path, "data", f"users_purged_{today}.csv")
-        try:
-            # Copy current users.csv to users_purged_<YYYY-MM-DD>.csv
-            if os.path.exists(csv_path):
-                with open(csv_path, "r", encoding="utf-8") as src, open(purged_csv_path, "w", encoding="utf-8") as dst:
-                    dst.write(src.read())
-            # Overwrite users.csv with only header
-            with open(csv_path, "w", newline='', encoding="utf-8") as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=self.user_columns)
-                writer.writeheader()
+        
+
+        backup_path = backup_users_data()
+        if backup_path:
+
             self.users = []
             self.filtered_sorted_users = []
+            self.save_users_to_csv()  # Save empty list
             self.populate_user_table()
             self.user_name_label.setText("No users")
             self.user_stats_label.setText("")
@@ -2434,24 +2253,16 @@ class BarbellCalculator(QMainWindow):
             for i in range(3):
                 for j in range(3):
                     self.lifts_table.setItem(i, j, QTableWidgetItem(""))
-            self.display_message(f"All users purged to {os.path.basename(purged_csv_path)}.")
-        except Exception as e:
-            self.display_message(f"Purge failed: {e}")
+            self.display_message(f"All users purged to {os.path.basename(backup_path)}.")
+        else:
+            self.display_message("Purge failed")
 
     def save_users_to_csv(self):
-        base_path = resource_path("")
-        csv_path = os.path.join(base_path, "data", "users.csv")
-        os.makedirs(os.path.dirname(csv_path), exist_ok=True)
-        fieldnames = self.user_columns
-        self.update_all_wilks()
-        try:
-            with open(csv_path, "w", newline='', encoding='utf-8') as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-                writer.writeheader()
-                for user in self.users:
-                    writer.writerow({k: user.get(k, "") for k in fieldnames})
-        except Exception as e:
-            self.display_message(f"Error saving users: {e}")
+        self.update_all_scores()
+        if save_users_to_csv(self.users):
+            pass  # Success - no message needed
+        else:
+            self.display_message("Error saving users")
 
     def refresh_users(self):
         self.users = self.load_users_from_csv()
@@ -2462,38 +2273,17 @@ class BarbellCalculator(QMainWindow):
         filename, _ = QFileDialog.getSaveFileName(self, "Export Users", "users_export.csv", "CSV Files (*.csv)")
         if not filename:
             return
-        self.update_all_wilks()
-        try:
-            with open(filename, "w", newline='', encoding='utf-8') as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=self.user_columns)
-                writer.writeheader()
-                for user in self.filtered_sorted_users:
-                    writer.writerow({k: user.get(k, "") for k in self.user_columns})
+        self.update_all_scores()
+        if export_users_to_csv_file(self.filtered_sorted_users, filename):
             self.display_message(f"Exported {len(self.filtered_sorted_users)} users to {filename}")
-        except Exception as e:
-            self.display_message(f"Export failed: {e}")
+        else:
+            self.display_message("Export failed")
 
     def import_users_from_csv(self):
         filename, _ = QFileDialog.getOpenFileName(self, "Import Users from CSV", "", "CSV Files (*.csv)")
         if not filename:
             return
-        users = []
-        try:
-            with open(filename, newline='', encoding='utf-8') as csvfile:
-                reader = csv.DictReader(csvfile)
-                for row in reader:
-                    # Ensure all columns exist
-                    for col in [
-                        "First", "Last", "Age", "Weight_LB", "Weight_KG", "Sex",
-                        *LIFT_COLS,
-                        "Wilks"
-                    ]:
-                        if col not in row:
-                            row[col] = ""
-                    users.append(row)
-        except Exception as e:
-            self.display_message(f"Failed to import users: {e}")
-            return
+        users = import_users_from_csv_file(filename)
         if users:
             self.users = users
             self.save_users_to_csv()
@@ -2509,12 +2299,12 @@ class BarbellCalculator(QMainWindow):
         dialog = EditUserDialog(user, self.user_columns, self)
         if dialog.exec():
             updated_user = dialog.get_user_data()
-            # Find the user in self.users and update
+
             for idx, u in enumerate(self.users):
                 if all(u.get(k, "") == user.get(k, "") for k in ["First", "Last", "Age", "Sex"]):
                     self.users[idx] = updated_user
                     break
-            # Also update in filtered_sorted_users
+
             self.filtered_sorted_users[row] = updated_user
             self.save_users_to_csv()
             self.filter_and_sort_users()
@@ -2523,26 +2313,16 @@ class BarbellCalculator(QMainWindow):
     def cleanup_temp_files(self):
         """Clean up temporary combined image files and caches."""
         try:
-            # Clear image caches
+
             if hasattr(self, '_image_cache'):
                 self._image_cache.clear()
             if hasattr(self, '_static_image_cache'):
                 self._static_image_cache.clear()
             
-            # Clean up temporary files
+
             base_path = resource_path("")
             resources_dir = os.path.join(base_path, "resources")
-            
-            if os.path.exists(resources_dir):
-                # Find all temp_combined files in the resources directory
-                for filename in os.listdir(resources_dir):
-                    if filename.startswith("temp_combined_") and filename.endswith(".png"):
-                        temp_file_path = os.path.join(resources_dir, filename)
-                        try:
-                            os.remove(temp_file_path)
-                            print(f"Deleted temporary file: {filename}")
-                        except Exception as e:
-                            print(f"Failed to delete {filename}: {e}")
+            cleanup_temp_files(resources_dir)
         except Exception as e:
             print(f"Error during cleanup: {e}")
 
@@ -2555,15 +2335,307 @@ class BarbellCalculator(QMainWindow):
                 pass
         super().closeEvent(event)
 
+    def open_stopwatch(self):
+        """Open the stopwatch tool in a popup dialog."""
+        try:
+            stopwatch = StopwatchDialog(self)
+            stopwatch.show()
+        except Exception as e:
+            print(f"Error opening stopwatch: {e}")
+    
+    def open_timer(self):
+        """Open the timer tool in a popup dialog."""
+        try:
+            timer = TimerDialog(self)
+            timer.show()
+        except Exception as e:
+            print(f"Error opening timer: {e}")
+    
+    def open_rules(self):
+        """Open the powerlifting rules URL in the default browser."""
+        try:
+            open_rules_link()
+        except Exception as e:
+            print(f"Error opening rules link: {e}")
+    
+    def cycle_theme(self):
+        """Cycle to the next color theme and apply it to the application."""
+        try:
+            # Get the next theme
+            theme_colors = self.theme_manager.get_next_theme()
+            
+            # Update global color variables
+            global COLOR1, COLOR2, COLOR3, COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING
+            global COLOR_ERROR, COLOR_INFO, COLOR_BORDER, COLOR_BUTTON_BG, COLOR_BUTTON_FG
+            global COLOR_BUTTON_HOVER, COLOR_INPUT_BG, COLOR_INPUT_FG, COLOR_SELECTION_BG, COLOR_SELECTION_FG
+            
+            COLOR1 = theme_colors["background"]
+            COLOR2 = theme_colors["text"]
+            COLOR3 = theme_colors["highlight"]
+            COLOR_ACCENT = theme_colors["accent"]
+            COLOR_SUCCESS = theme_colors["success"]
+            COLOR_WARNING = theme_colors["warning"]
+            COLOR_ERROR = theme_colors["error"]
+            COLOR_INFO = theme_colors["info"]
+            COLOR_BORDER = theme_colors["border"]
+            COLOR_BUTTON_BG = theme_colors["button_bg"]
+            COLOR_BUTTON_FG = theme_colors["button_fg"]
+            COLOR_BUTTON_HOVER = theme_colors["button_hover"]
+            COLOR_INPUT_BG = theme_colors["input_bg"]
+            COLOR_INPUT_FG = theme_colors["input_fg"]
+            COLOR_SELECTION_BG = theme_colors["selection_bg"]
+            COLOR_SELECTION_FG = theme_colors["selection_fg"]
+            
+            # Apply the theme to the application
+            self.apply_theme()
+            
+            # Update the theme button text to show current theme
+            current_theme_name = self.theme_manager.get_current_theme_name()
+            self.theme_btn.setText(f"🎨 {current_theme_name}")
+            
+        except Exception as e:
+            print(f"Error cycling theme: {e}")
+    
+    def apply_theme(self):
+        """Apply the current theme colors to all UI elements."""
+        try:
+            # Update main window stylesheet
+            self.central_widget.setStyleSheet(f"""
+                background-color: {COLOR1};
+                color: {COLOR2};
+            """)
+            
+            # Update main application stylesheet
+            self.setStyleSheet(f"""
+                QGroupBox {{
+                    background-color: {COLOR1};
+                    color: {COLOR2};
+                    border: 1px solid {COLOR_BORDER};
+                    border-radius: 6px;
+                    margin-top: 6px;
+                }}
+                QGroupBox:title {{
+                    subcontrol-origin: margin;
+                    left: 10px;
+                    padding: 0 3px 0 3px;
+                }}
+                QPushButton {{
+                    background-color: {COLOR_BUTTON_BG};
+                    color: {COLOR_BUTTON_FG};
+                    border-radius: 8px;
+                    border: 2px solid {COLOR3};
+                    padding: 6px 12px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: {COLOR_BUTTON_HOVER};
+                    color: {COLOR_BUTTON_FG};
+                    border: 2px solid {COLOR_ACCENT};
+                }}
+                QRadioButton, QCheckBox {{
+                    background-color: {COLOR1};
+                    color: {COLOR3};
+                    font-weight: bold;
+                    border: 1.5px solid {COLOR3};
+                    border-radius: 6px;
+                    padding: 3px 8px;
+                    margin: 2px;
+                }}
+                QRadioButton::indicator, QCheckBox::indicator {{
+                    border: 1.5px solid {COLOR3};
+                    border-radius: 6px;
+                    background: {COLOR1};
+                    width: 16px;
+                    height: 16px;
+                    margin-right: 6px;
+                }}
+                QRadioButton::indicator:checked {{
+                    background-color: {COLOR3};
+                    border: 2px solid {COLOR_ACCENT};
+                }}
+                QRadioButton::indicator:unchecked {{
+                    background-color: {COLOR1};
+                    border: 1.5px solid {COLOR3};
+                }}
+                QCheckBox::indicator:checked {{
+                    background-color: {COLOR3};
+                    border: 2px solid {COLOR_ACCENT};
+                }}
+                QCheckBox::indicator:unchecked {{
+                    background-color: {COLOR1};
+                    border: 1.5px solid {COLOR3};
+                }}
+                QListWidget {{
+                    background-color: {COLOR1};
+                    color: {COLOR2};
+                    border: 1px solid {COLOR_BORDER};
+                    selection-background-color: {COLOR_SELECTION_BG};
+                    selection-color: {COLOR_SELECTION_FG};
+                }}
+                QLineEdit {{
+                    background-color: {COLOR_INPUT_BG};
+                    color: {COLOR_INPUT_FG};
+                    border: 1px solid {COLOR_BORDER};
+                }}
+            """)
+            
+            # Update header button styles individually to maintain their unique colors
+            self.update_header_button_styles()
+            
+        except Exception as e:
+            print(f"Error applying theme: {e}")
+    
+    def update_header_button_styles(self):
+        """Update the header button styles with theme-aware colors."""
+        try:
+            # Update exit button
+            self.exit_button.setStyleSheet(f"""
+                QPushButton {{
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                        stop:0 {COLOR_ERROR}, stop:1 #a32f2f);
+                    color: white;
+                    border: 2px solid #8B0000;
+                    border-radius: 12px;
+                    padding: 8px 16px;
+                    font-weight: bold;
+                    font-size: 12px;
+                    margin: 0 8px;
+                    min-width: 60px;
+                }}
+                QPushButton:hover {{
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                        stop:0 #ff6b6b, stop:1 {COLOR_ERROR});
+                    border: 2px solid #ff4444;
+                }}
+                QPushButton:pressed {{
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                        stop:0 #a32f2f, stop:1 #8B0000);
+                }}
+            """)
+            
+            # Update theme button
+            self.theme_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                        stop:0 #9c27b0, stop:1 #6a1b9a);
+                    color: white;
+                    border: 2px solid #7b1fa2;
+                    border-radius: 12px;
+                    padding: 8px 16px;
+                    font-weight: bold;
+                    font-size: 12px;
+                    margin: 0 8px;
+                    min-width: 80px;
+                }}
+                QPushButton:hover {{
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                        stop:0 #ba68c8, stop:1 #9c27b0);
+                    border: 2px solid #ba68c8;
+                }}
+                QPushButton:pressed {{
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                        stop:0 #6a1b9a, stop:1 #4a148c);
+                }}
+            """)
+            
+            # Update tools button
+            self.tools_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                        stop:0 {COLOR_WARNING}, stop:1 #e65100);
+                    color: white;
+                    border: 2px solid #f57c00;
+                    border-radius: 12px;
+                    padding: 8px 16px;
+                    font-weight: bold;
+                    font-size: 12px;
+                    margin: 0 8px;
+                    min-width: 80px;
+                }}
+                QPushButton:hover {{
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                        stop:0 #ffb74d, stop:1 #f57c00);
+                    border: 2px solid #ffb74d;
+                }}
+                QPushButton:pressed {{
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                        stop:0 #e65100, stop:1 #bf360c);
+                }}
+            """)
+            
+            # Update toggle buttons
+            self.toggle_title_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                        stop:0 {COLOR_INFO}, stop:1 #1565c0);
+                    color: white;
+                    border: 2px solid #0277bd;
+                    border-radius: 12px;
+                    padding: 8px 16px;
+                    font-weight: bold;
+                    font-size: 12px;
+                    margin: 0 8px;
+                    min-width: 80px;
+                }}
+                QPushButton:hover {{
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                        stop:0 #42a5f5, stop:1 {COLOR_INFO});
+                    border: 2px solid #29b6f6;
+                }}
+                QPushButton:pressed {{
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                        stop:0 #1565c0, stop:1 #0d47a1);
+                }}
+                QPushButton:checked {{
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                        stop:0 #66bb6a, stop:1 {COLOR_SUCCESS});
+                    border: 2px solid #4caf50;
+                }}
+            """)
+            
+            self.toggle_user_pane_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                        stop:0 {COLOR_INFO}, stop:1 #1565c0);
+                    color: white;
+                    border: 2px solid #0277bd;
+                    border-radius: 12px;
+                    padding: 8px 16px;
+                    font-weight: bold;
+                    font-size: 12px;
+                    margin: 0 8px;
+                    min-width: 70px;
+                }}
+                QPushButton:hover {{
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                        stop:0 #42a5f5, stop:1 {COLOR_INFO});
+                    border: 2px solid #29b6f6;
+                }}
+                QPushButton:pressed {{
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                        stop:0 #1565c0, stop:1 #0d47a1);
+                }}
+                QPushButton:checked {{
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                        stop:0 #66bb6a, stop:1 {COLOR_SUCCESS});
+                    border: 2px solid #4caf50;
+                }}
+            """)
+            
+        except Exception as e:
+            print(f"Error updating header button styles: {e}")
+
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     window = BarbellCalculator()
     window.show()
-    
     # Ensure cleanup happens when the application exits
     try:
         sys.exit(app.exec())
     finally:
         # Final cleanup in case closeEvent wasn't called
         if 'window' in locals():
-            window.cleanup_temp_files()
+            # Clean up temp files using the same logic as BarbellCalculator
+            base_path = resource_path("")
+            resources_dir = os.path.join(base_path, "resources")
+            cleanup_temp_files(resources_dir)

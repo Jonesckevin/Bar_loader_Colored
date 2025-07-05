@@ -21,6 +21,9 @@ The **Barbell Calculator** is a python script using [Qt6](https://www.pythonguis
 
 - Window Resizing
 - Hide User management tab
+- Pop-out Stopwatch with start/stop/reset functionality.
+- Pop-out Timer with start/stop/reset functionality.
+- Link to a powerlifting rules.  (Change as you see fit)
 - Calculate weights in lbs, kg, or stones.
 - Round weights for precision.
 - Choose or create custom bars and colors, or dumbbell themes.
@@ -42,6 +45,14 @@ The **Barbell Calculator** is a python script using [Qt6](https://www.pythonguis
 - User data stored in `data` for easy backup.
 - Auto-create `data` and example users if missing.
 - Archived and purged users are backed up.
+- **User table now displays all major powerlifting scoring systems:**
+  - DOTS (primary)
+  - Wilks (original)
+  - Wilks2 (updated)
+  - IPF Points
+  - IPF GL Points
+- **Sort and filter users by any scoring system.**
+- **All scoring columns are automatically calculated and updated.**
 
 ### Creating your own theme
 
@@ -68,11 +79,8 @@ bash setup.sh
 
 ### Create exe from Python script
 
-```bash
-# Takes about 5 minutes to run
-pip install pyinstaller
-python -m PyInstaller --onefile --windowed --add-data "resources:resources" --add-data "BarBellWeights:BarBellWeights" run-gui_Qt6.py
-# Output is in the `dist` directory as `run-gui_Qt6.exe`
+```powershell
+.\build_exe.bat
 ```
 
 ## Data Directory
@@ -82,24 +90,15 @@ python -m PyInstaller --onefile --windowed --add-data "resources:resources" --ad
 - This keeps user data separate from resources and themes.
 
 ## Ideas
-
-- Add hot key bindings for quick access to common functions for custom button setups such as a small 10 button keyboard that will add or remove weights.
 - Add a hotkey mapping config file and allow users to use the gui to map on the fly.
 - Add Gui customizations
-- Add a feature to save and load user profiles with custom settings.
-- Implement a dark mode theme option for better visibility.
 
 ## To Do
 
-- Editable Title
 - Add Judge and Referee management.
 - Add Live Scoring & Results Display
 - Add Rack Height Management
 - Custom Branding & Sponsorships Loading
-- Add a feature to save and load user profiles with custom settings.
-- Customizable UI Themes
 - Help Menus
-- Json Export Option
-- Create Grapgics for Competitor Results and stats
-- Resetable Stopwatch
+- Create Graphics for Competitor Results and stats
 - Hotkey for Judges
