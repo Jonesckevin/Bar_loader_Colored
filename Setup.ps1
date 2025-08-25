@@ -2,7 +2,8 @@
 if (-not (Get-Command pip -ErrorAction SilentlyContinue)) {
     Write-Host "pip could not be found, installing..."
     python -m ensurepip --upgrade
-} else {
+}
+else {
     Write-Host "pip is already installed"
 }
 
@@ -12,16 +13,17 @@ if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-if (-not (Test-Path -Path "./venv")) {
+if (-not (Test-Path -Path "./.venv")) {
     Write-Host "Creating virtual environment..."
-    python -m venv venv
-} else {
+    python -m venv .venv
+}
+else {
     Write-Host "Virtual environment already exists"
 }
 
 # Activate the virtual environment
 Write-Host "Activating virtual environment..."
-& .\venv\Scripts\Activate.ps1
+& .\.venv\Scripts\Activate.ps1
 
 # Check and install requirements
 if (-not (Test-Path -Path "./requirements.txt")) {

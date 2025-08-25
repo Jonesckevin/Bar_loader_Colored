@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 import io
 import json
 import csv
@@ -11,137 +12,585 @@ from PyQt6.QtWidgets import (
     QGridLayout, QDialog, QFrame, QSizePolicy, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox,
     QDialogButtonBox, QStyle, QFileDialog, QMessageBox, QSplitter, QMenu
 )
-from PyQt6.QtGui import QPixmap, QFont, QCursor, QIcon
-from PyQt6.QtCore import Qt, QUrl, QTimer
+from PyQt6.QtGui import QPixmap, QFont, QCursor, QIcon, QImage, QPainter
+from PyQt6.QtCore import Qt, QUrl, QTimer, QRect
 from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtPrintSupport import QPrinter
 
+# Optional PDF417 barcode generation
 try:
-    from PIL import Image
-except ImportError:
-    Image = None  # Handle missing PIL gracefully
+    import pdf417gen as pdf417
+except Exception:
+    pdf417 = None
 
+# Optional Pillow (PIL) import
+try:
+    from PIL import Image  # noqa: F401
+except Exception:
+    Image = None  # type: ignore
+
+# Application helpers and configuration
 from resources.functions import (
-
     resource_path, load_config, round_weight,
-
     compute_dots, convert_lb_to_kg, convert_kg_to_lb, convert_kg_to_stone,
     calculate_total_lifts, CONVERSION_FACTOR_LB_TO_KG, CONVERSION_FACTOR_KG_TO_STONE,
-
     get_theme_folder, get_image_path, load_available_themes,
     filter_themes_by_text, filter_themes_by_category,
-
     create_combined_image_pixmap, get_cached_static_image, pil_to_pixmap,
     cleanup_temp_files, load_and_validate_image,
-
     load_users_from_csv, save_users_to_csv, import_users_from_csv_file,
     export_users_to_csv_file, save_removed_user, backup_users_data,
-    update_user_dots, update_user_scores, validate_user_data, filter_users_by_text as filter_users_text,
-    sort_users_by_column, load_judge_scores, ensure_user_completeness, LIFT_COLS,
-    
+    update_user_dots, update_user_scores, validate_user_data,
+    filter_users_by_text as filter_users_text, sort_users_by_column,
+    load_judge_scores, ensure_user_completeness, LIFT_COLS,
     StopwatchDialog, TimerDialog, open_rules_link,
     ThemeManager
 )
 
-# Load config and set up global variables
-def initialize_config():
-    """Initialize configuration and global variables."""
-    config = load_config()
-    return config
+# Initialize configuration and global constants used throughout the UI
+_config = load_config()
+WINDOW_WIDTH = _config["window"]["width"]
+WINDOW_HEIGHT = _config["window"]["height"]
+FONT = tuple(_config["fonts"]["default"])  # e.g., ("Segoe UI", 10)
+FONT_BOLD = tuple(_config["fonts"].get("bold", _config["fonts"]["default"]))
+COLOR1 = _config["colors"]["background"]
+COLOR2 = _config["colors"]["text"]
+COLOR3 = _config["colors"]["highlight"]
+COLOR_ACCENT = _config["colors"].get("accent", "#ff9800")
+COLOR_SUCCESS = _config["colors"].get("success", "#4caf50")
+COLOR_WARNING = _config["colors"].get("warning", "#ffc107")
+COLOR_ERROR = _config["colors"].get("error", "#f44336")
+COLOR_INFO = _config["colors"].get("info", "#2196f3")
+COLOR_BORDER = _config["colors"].get("border", "#cccccc")
+COLOR_BUTTON_BG = _config["colors"].get("button_bg", "#e0e0e0")
+COLOR_BUTTON_FG = _config["colors"].get("button_fg", "#212121")
+COLOR_BUTTON_HOVER = _config["colors"].get("button_hover", "#bdbdbd")
+COLOR_INPUT_BG = _config["colors"].get("input_bg", "#ffffff")
+COLOR_INPUT_FG = _config["colors"].get("input_fg", "#212121")
+COLOR_SELECTION_BG = _config["colors"].get("selection_bg", "#cce5ff")
+COLOR_SELECTION_FG = _config["colors"].get("selection_fg", "#212121")
+BARBELL_TYPES = _config.get("barbell_types", {"Standard": [45, 20.4]})
+IMAGE_ROUNDING = _config["image"].get("rounding", False)
+THEME_PATH = _config["paths"]["theme"]
+DEFAULT_PADDING = _config["padding"].get("default", 8)
+DEFAULT_BUTTON_PADDING = _config["padding"].get("button", 8)
 
-# Initialize config
-config = initialize_config()
+APP_TITLE = _config["app"]["title"]
+APP_AUTHOR = _config["app"]["author"]
+APP_GITHUB_REPO = _config["app"]["github_repo"]
+APP_ICON_PATH = _config["app"]["icon_path"]
+APP_DESCRIPTION = _config["app"].get("description", "")
 
-WINDOW_WIDTH = config["window"]["width"]
-WINDOW_HEIGHT = config["window"]["height"]
-FONT = tuple(config["fonts"]["default"])
-FONT_BOLD = tuple(config["fonts"]["bold"])
-COLOR1 = config["colors"]["background"]
-COLOR2 = config["colors"]["text"]
-COLOR3 = config["colors"]["highlight"]
-COLOR_ACCENT = config["colors"].get("accent", "#ff9800")
-COLOR_SUCCESS = config["colors"].get("success", "#4caf50")
-COLOR_WARNING = config["colors"].get("warning", "#ffc107")
-COLOR_ERROR = config["colors"].get("error", "#f44336")
-COLOR_INFO = config["colors"].get("info", "#2196f3")
-COLOR_BORDER = config["colors"].get("border", "#cccccc")
-COLOR_BUTTON_BG = config["colors"].get("button_bg", "#e0e0e0")
-COLOR_BUTTON_FG = config["colors"].get("button_fg", "#212121")
-COLOR_BUTTON_HOVER = config["colors"].get("button_hover", "#bdbdbd")
-COLOR_INPUT_BG = config["colors"].get("input_bg", "#ffffff")
-COLOR_INPUT_FG = config["colors"].get("input_fg", "#212121")
-COLOR_SELECTION_BG = config["colors"].get("selection_bg", "#cce5ff")
-COLOR_SELECTION_FG = config["colors"].get("selection_fg", "#212121")
-BARBELL_TYPES = config.get("barbell_types", {"Standard": [45, 20.4]})
-IMAGE_ROUNDING = config["image"]["rounding"]
-THEME_PATH = config["paths"]["theme"]
-DEFAULT_PADDING = config["padding"]["default"]
-DEFAULT_BUTTON_PADDING = config["padding"]["button"]
+class EditUserDialog(QDialog):
+    def __init__(self, user_data, columns, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("✏️ Edit User")
+        self.setModal(True)
+        self.resize(650, 800)
+        self.setMinimumSize(600, 750)
+        self.setStyleSheet(f"""
+            QDialog {{ background-color: {COLOR1}; color: {COLOR2}; }}
+            QGroupBox {{ background-color: {COLOR1}; color: {COLOR2}; border: 2px solid {COLOR_BORDER}; border-radius: 8px; margin-top: 12px; padding-top: 8px; font-weight: bold; font-size: 14px; }}
+            QGroupBox::title {{ subcontrol-origin: margin; left: 15px; padding: 0 8px; color: {COLOR3}; }}
+            QLabel {{ color: {COLOR2}; font-weight: bold; font-size: 12px; padding: 2px; }}
+            QLineEdit {{ background-color: {COLOR_INPUT_BG}; color: {COLOR_INPUT_FG}; border: 2px solid {COLOR_BORDER}; border-radius: 6px; padding: 8px; font-size: 12px; min-height: 20px; }}
+            QLineEdit:focus {{ border: 2px solid {COLOR3}; background-color: {COLOR1}; }}
+            QComboBox {{ background-color: {COLOR_INPUT_BG}; color: {COLOR_INPUT_FG}; border: 2px solid {COLOR_BORDER}; border-radius: 6px; padding: 8px; font-size: 12px; min-height: 20px; }}
+            QComboBox:focus {{ border: 2px solid {COLOR3}; }}
+            QComboBox::drop-down {{ border: none; background: {COLOR_BUTTON_BG}; border-radius: 4px; width: 20px; }}
+            QComboBox::down-arrow {{ image: none; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 6px solid {COLOR2}; margin: 0 4px; }}
+        """)
 
-APP_TITLE = config["app"]["title"]
-APP_AUTHOR = config["app"]["author"]
-APP_GITHUB_REPO = config["app"]["github_repo"]
-APP_ICON_PATH = config["app"]["icon_path"]
-APP_DESCRIPTION = config["app"]["description"]
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameStyle(QFrame.Shape.NoFrame)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        scroll_widget = QWidget()
+        scroll_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        scroll_layout = QVBoxLayout(scroll_widget)
+        scroll_layout.setSpacing(20)
+
+        self.fields = {}
+
+        # Personal info
+        personal_group = QGroupBox("👤 Personal Information")
+        personal_layout = QGridLayout(personal_group)
+        personal_layout.setSpacing(12)
+        personal_layout.setContentsMargins(15, 25, 15, 15)
+        personal_layout.setColumnStretch(0, 0)
+        personal_layout.setColumnStretch(1, 1)
+        personal_fields = ["First", "Last", "Age", "Weight_LB", "Weight_KG", "Sex"]
+        row = 0
+        for field in personal_fields:
+            if field in columns:
+                label = QLabel(f"{field.replace('_', ' ')}:")
+                if field == "Sex":
+                    widget = QComboBox(); widget.addItems(["Male", "Female"]); widget.setCurrentText(user_data.get(field, ""))
+                else:
+                    widget = QLineEdit(); widget.setText(user_data.get(field, ""))
+                    if field in ["Age", "Weight_LB", "Weight_KG"]:
+                        widget.setPlaceholderText("Enter number...")
+                self.fields[field] = widget
+                personal_layout.addWidget(label, row, 0)
+                personal_layout.addWidget(widget, row, 1)
+                row += 1
+
+        if "Weight_LB" in self.fields and "Weight_KG" in self.fields:
+            self.fields["Weight_LB"].textChanged.connect(self._convert_lb_to_kg)
+            self.fields["Weight_KG"].textChanged.connect(self._convert_kg_to_lb)
+        scroll_layout.addWidget(personal_group)
+
+        # Attempts section
+        lifts_group = QGroupBox("🏋️ Powerlifting Attempts")
+        lifts_layout = QGridLayout(lifts_group)
+        lifts_layout.setSpacing(12)
+        lifts_layout.setContentsMargins(15, 25, 15, 15)
+        lifts_layout.setColumnStretch(0, 0)
+        lifts_layout.setColumnStretch(1, 1)
+        lifts_layout.setColumnStretch(2, 1)
+        lifts_layout.setColumnStretch(3, 1)
+        lift_types = ["Squat", "Bench", "Deadlift"]
+        lifts_layout.addWidget(QLabel(""), 0, 0)
+        for col, lift_type in enumerate(lift_types):
+            header_label = QLabel(lift_type)
+            header_label.setStyleSheet(f"color: {COLOR3}; font-weight: bold; font-size: 14px;")
+            lifts_layout.addWidget(header_label, 0, col + 1)
+        for attempt in range(1, 3 + 1):
+            lifts_layout.addWidget(QLabel(f"Attempt {attempt}:") , attempt, 0)
+            for col, lift_type in enumerate(lift_types):
+                field = f"{lift_type}{attempt}"
+                if field in columns:
+                    w = QLineEdit(); w.setText(user_data.get(field, "")); w.setPlaceholderText("Weight..."); w.setMaximumWidth(120)
+                    self.fields[field] = w
+                    lifts_layout.addWidget(w, attempt, col + 1)
+        scroll_layout.addWidget(lifts_group)
+
+        # Additional fields
+        other_fields = [col for col in columns if col not in personal_fields + [f"{lift}{n}" for lift in lift_types for n in range(1,4)] and col != "DOTS"]
+        if other_fields:
+            other_group = QGroupBox("📊 Additional Information")
+            other_layout = QGridLayout(other_group)
+            other_layout.setSpacing(12)
+            other_layout.setContentsMargins(15, 25, 15, 15)
+            other_layout.setColumnStretch(0, 0)
+            other_layout.setColumnStretch(1, 1)
+            for i, field in enumerate(other_fields):
+                label = QLabel(f"{field.replace('_',' ')}:")
+                widget = QLineEdit(); widget.setText(user_data.get(field, ""))
+                self.fields[field] = widget
+                other_layout.addWidget(label, i, 0)
+                other_layout.addWidget(widget, i, 1)
+            scroll_layout.addWidget(other_group)
+
+        # Barcode group
+        self.barcode_group = QGroupBox("📇 PDF417 (All User Data)")
+        self.barcode_group.setStyleSheet(f"QGroupBox::title {{ color: {COLOR3}; }}")
+        barcode_vbox = QVBoxLayout(self.barcode_group)
+        self.barcode_label = QLabel("Generating barcode…")
+        self.barcode_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.barcode_label.setStyleSheet(f"background-color: {COLOR1}; color: {COLOR2}; border: 1px dashed {COLOR_BORDER}; border-radius: 6px; padding: 8px;")
+        self.barcode_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.barcode_label.setMinimumHeight(120)
+        # Let height expand to keep aspect ratio when width grows
+        self.barcode_label.setMaximumHeight(16777215)
+        barcode_vbox.addWidget(self.barcode_label)
+
+        row = QHBoxLayout()
+        self.refresh_barcode_btn = QPushButton("↻ Refresh Barcode")
+        self.refresh_barcode_btn.setToolTip("Regenerate barcode from the current form values")
+        self.refresh_barcode_btn.clicked.connect(self._update_barcode)
+        self.refresh_barcode_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.save_png_btn = QPushButton("💾 Save PNG")
+        self.save_png_btn.setToolTip("Save a PNG image with title, data and PDF417 barcode")
+        self.save_png_btn.clicked.connect(self._export_png)
+        self.save_png_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        # Enlarge barcode button
+        self.enlarge_barcode_btn = QPushButton("🔍 Enlarge Barcode")
+        self.enlarge_barcode_btn.setToolTip("Open a large, scannable barcode window")
+        self.enlarge_barcode_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.enlarge_barcode_btn.clicked.connect(self._open_barcode_popup)
+        row.addStretch(1)
+        row.addWidget(self.refresh_barcode_btn)
+        row.addWidget(self.save_png_btn)
+        row.addWidget(self.enlarge_barcode_btn)
+        row.addStretch(1)
+        barcode_vbox.addLayout(row)
+        scroll_layout.addWidget(self.barcode_group)
+
+        scroll_layout.addStretch()
+        scroll_area.setWidget(scroll_widget)
+        main_layout.addWidget(scroll_area)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        button_box.setStyleSheet(f"""
+            QDialogButtonBox {{ background-color: {COLOR1}; }}
+            QPushButton {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {COLOR_BUTTON_BG}, stop:1 {COLOR_BUTTON_HOVER}); color: {COLOR_BUTTON_FG}; border: 2px solid {COLOR_BORDER}; border-radius: 8px; padding: 10px 20px; font-weight: bold; font-size: 12px; min-width: 80px; }}
+            QPushButton:hover {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {COLOR3}, stop:1 {COLOR_BUTTON_BG}); border: 2px solid {COLOR3}; }}
+            QPushButton:pressed {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {COLOR_BUTTON_HOVER}, stop:1 {COLOR_BORDER}); }}
+        """)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        main_layout.addWidget(button_box)
+
+        # Timer
+        self._barcode_timer = QTimer(self)
+        self._barcode_timer.setSingleShot(True)
+        self._barcode_timer.timeout.connect(self._update_barcode)
+        for widget in self.fields.values():
+            if isinstance(widget, QLineEdit):
+                widget.textChanged.connect(self._schedule_barcode_update)
+            elif isinstance(widget, QComboBox):
+                widget.currentTextChanged.connect(self._schedule_barcode_update)
+        self._update_barcode()
+
+    # ---- Barcode helpers ----
+    def _schedule_barcode_update(self):
+        self._barcode_timer.start(400)
+
+    def resizeEvent(self, event):
+        """Keep the PDF417 preview at 30% of the label width on resize."""
+        super().resizeEvent(event)
+        try:
+            pix = getattr(self, "_barcode_pixmap", None)
+            if isinstance(pix, QPixmap) and not pix.isNull():
+                avail_w = max(100, int(self.barcode_label.contentsRect().width() * 0.30))
+                scaled = pix.scaledToWidth(avail_w, Qt.TransformationMode.SmoothTransformation)
+                self.barcode_label.setPixmap(scaled)
+        except Exception:
+            pass
+
+    def _collect_barcode_payload(self) -> dict:
+        payload = {}
+        for col, widget in self.fields.items():
+            if isinstance(widget, QComboBox):
+                val = widget.currentText()
+            else:
+                val = widget.text()
+            if (val is not None) and (str(val).strip() != ""):
+                payload[col] = str(val).strip()
+        return payload
+
+    def _pil_to_qpixmap(self, pil_img) -> QPixmap:
+        try:
+            buf = io.BytesIO()
+            pil_img.save(buf, format="PNG")
+            qpix = QPixmap()
+            qpix.loadFromData(buf.getvalue(), "PNG")
+            return qpix
+        except Exception:
+            return QPixmap()
+
+    def _update_barcode(self):
+        if pdf417 is None:
+            self.barcode_label.setText("PDF417 not available. Install 'pdf417gen' to enable barcodes.")
+            return
+        try:
+            payload = self._collect_barcode_payload()
+            data_text = json.dumps({"type": "BarLoaderUser", "data": payload}, ensure_ascii=False, separators=(",", ":"))
+            est = max(0, len(data_text))
+            cols = max(14, min(34, 14 + est // 60))
+            codes = pdf417.encode(data_text, columns=cols, security_level=3)
+            pil_img = pdf417.render_image(codes, scale=3, ratio=3, padding=8)
+            qpix = self._pil_to_qpixmap(pil_img)
+            self._barcode_pixmap = qpix
+            if qpix and not qpix.isNull():
+                # Scale to current label width keeping aspect
+                # Reduce width by 70% (use 30% of available label width)
+                avail_w = max(100, int(self.barcode_label.contentsRect().width() * 0.30))
+                scaled = qpix.scaledToWidth(avail_w, Qt.TransformationMode.SmoothTransformation)
+                self.barcode_label.setPixmap(scaled)
+                self.barcode_label.setText("")
+                # If popup is open, update it as well
+                if getattr(self, "_barcode_popup", None) and self._barcode_popup.isVisible():
+                    self._update_barcode_popup_pixmap()
+            else:
+                self.barcode_label.setText("Failed to render barcode.")
+        except Exception as e:
+            self.barcode_label.setText(f"Barcode error: {e}")
+
+    # ---- Barcode popup ----
+    def _open_barcode_popup(self):
+        if pdf417 is None:
+            QMessageBox.information(self, "Barcode Unavailable", "Install 'pdf417gen' to enable barcode preview.")
+            return
+        # Prefer the original rendered pixmap; fallback to what's on the label
+        src = getattr(self, "_barcode_pixmap", None) or self.barcode_label.pixmap()
+        if not isinstance(src, QPixmap) or src.isNull():
+            self._update_barcode()
+            src = getattr(self, "_barcode_pixmap", None) or self.barcode_label.pixmap()
+        if not isinstance(src, QPixmap) or src.isNull():
+            QMessageBox.warning(self, "No Barcode", "No barcode available to enlarge.")
+            return
+
+        if getattr(self, "_barcode_popup", None) and self._barcode_popup.isVisible():
+            # Just refresh and focus
+            self._update_barcode_popup_pixmap()
+            self._barcode_popup.raise_()
+            self._barcode_popup.activateWindow()
+            return
+
+        # Create popup window
+        self._barcode_popup = QDialog(self)
+        self._barcode_popup.setWindowTitle("🔍 Enlarge Barcode")
+        self._barcode_popup.setModal(False)
+        self._barcode_popup.resize(900, 320)
+        self._barcode_popup.setMinimumSize(500, 220)
+        self._barcode_popup.setStyleSheet(f"""
+            QDialog {{ background-color: {COLOR1}; color: {COLOR2}; }}
+            QLabel {{ background-color: {COLOR1}; color: {COLOR2}; }}
+        """)
+
+        vbox = QVBoxLayout(self._barcode_popup)
+        vbox.setContentsMargins(12, 12, 12, 12)
+        vbox.setSpacing(8)
+
+        self._barcode_popup_label = QLabel()
+        self._barcode_popup_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._barcode_popup_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        vbox.addWidget(self._barcode_popup_label)
+
+        # Install resize handler
+        self._barcode_popup.resizeEvent = self._barcode_popup_resize_event
+
+        self._update_barcode_popup_pixmap()
+        self._barcode_popup.show()
+
+    def _barcode_popup_resize_event(self, event):
+        try:
+            self._update_barcode_popup_pixmap()
+        except Exception:
+            pass
+        event.accept()
+
+    def _update_barcode_popup_pixmap(self):
+        if not (getattr(self, "_barcode_popup", None) and getattr(self, "_barcode_popup_label", None)):
+            return
+        src = getattr(self, "_barcode_pixmap", None) or self.barcode_label.pixmap()
+        if not isinstance(src, QPixmap) or src.isNull():
+            return
+        # Scale barcode to fill popup label while keeping aspect ratio
+        label = self._barcode_popup_label
+        target_w = max(200, label.width() - 8)
+        target_h = max(120, label.height() - 8)
+        scaled = src.scaled(target_w, target_h, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        label.setPixmap(scaled)
+
+    def _export_png(self):
+        user = self.get_user_data()
+        try:
+            update_user_scores([user])
+        except Exception:
+            pass
+        first = user.get("First", "User"); last = user.get("Last", "")
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        default_name = f"{first}_{last}_{ts}".strip("_") or f"user_{ts}"
+        filename, _ = QFileDialog.getSaveFileName(self, "Save User JPG", f"{default_name}.jpg", "JPEG Files (*.jpg *.jpeg)")
+        if not filename:
+            return
+        if not (filename.lower().endswith(".jpg") or filename.lower().endswith(".jpeg")):
+            filename += ".jpg"
+        base_w, base_h = 2480, 3508
+        factor = 4  # 4x quality
+        image = QImage(base_w * factor, base_h * factor, QImage.Format.Format_ARGB32)
+        image.fill(Qt.GlobalColor.white)
+        p = QPainter(image)
+        try:
+            p.scale(factor, factor)
+            used_h_logical = self._draw_user_card(p, QRect(0, 0, base_w, base_h), user)
+        finally:
+            p.end()
+        used_h_px = max(1, min(image.height(), int(used_h_logical * factor + 24 * factor)))
+        if used_h_px < image.height():
+            image = image.copy(QRect(0, 0, image.width(), used_h_px))
+        image.save(filename, "JPG", 95)
+        try:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(filename))
+        except Exception:
+            pass
+        QMessageBox.information(self, "PNG Saved", f"Saved PNG to:\n{filename}")
+
+    def _draw_user_card(self, painter: QPainter, bounds: 'QRect', user: dict) -> int:
+        page_rect = bounds
+        x_margin = 36
+        y = 36
+        content_width = int(page_rect.width()) - 2 * x_margin
+        title_text = APP_TITLE
+        try:
+            parent = self.parent()
+            if parent and hasattr(parent, "title_label"):
+                t = str(parent.title_label.text()).strip()
+                if t:
+                    title_text = t
+        except Exception:
+            pass
+        painter.setFont(QFont(FONT[0], 26, QFont.Weight.Bold))
+        painter.drawText(int(x_margin), int(y), int(content_width), int(40), int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter), title_text)
+        y += 44
+        painter.setFont(QFont(FONT[0], 14, QFont.Weight.Bold))
+        name_line = f"{user.get('First','')} {user.get('Last','')}  |  Sex: {user.get('Sex','')}  |  Age: {user.get('Age','')}"
+        painter.drawText(int(x_margin), int(y), int(content_width), int(22), int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter), name_line)
+        y += 22
+        bw_line = f"Bodyweight: {user.get('Weight_LB','')} lb / {user.get('Weight_KG','')} kg"
+        painter.setFont(QFont(FONT[0], 13))
+        painter.drawText(int(x_margin), int(y), int(content_width), int(20), int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter), bw_line)
+        y += 24
+        painter.setFont(QFont(FONT[0], 14, QFont.Weight.Bold))
+        painter.drawText(int(x_margin), int(y), int(content_width), int(22), int(Qt.AlignmentFlag.AlignHCenter), "Attempts")
+        y += 20
+        row_h = 26
+        desired_lift_w = 220
+        desired_try_w = 110
+        desired_total_w = desired_lift_w + 3 * desired_try_w
+        scale = min(1.0, content_width / max(1, desired_total_w))
+        lift_w = int(desired_lift_w * scale)
+        try_w = int(desired_try_w * scale)
+        table_w = lift_w + 3 * try_w
+        left_x = int(x_margin + (content_width - table_w) / 2)
+        col_w = [lift_w, try_w, try_w, try_w]
+        col_x = [left_x, left_x + col_w[0], left_x + col_w[0] + col_w[1], left_x + col_w[0] + col_w[1] + col_w[2]]
+        painter.setFont(QFont(FONT[0], 13, QFont.Weight.Bold))
+        headers = ["Lift", "1", "2", "3"]
+        for i, htxt in enumerate(headers):
+            painter.drawText(int(col_x[i])+4, int(y), int(col_w[i])-8, int(row_h), int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter), htxt)
+        y += row_h
+        painter.setFont(QFont(FONT[0], 13))
+        for lift in ("Squat", "Bench", "Deadlift"):
+            a1 = str(user.get(f"{lift}1", ""))
+            a2 = str(user.get(f"{lift}2", ""))
+            a3 = str(user.get(f"{lift}3", ""))
+            vals = [lift, a1, a2, a3]
+            for i, v in enumerate(vals):
+                painter.drawText(int(col_x[i])+4, int(y), int(col_w[i])-8, int(row_h), int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter), v)
+            y += row_h
+        y += 8
+        totals = []
+        for key in ("Total", "DOTS", "Wilks", "Wilks2", "IPF", "IPF_GL"):
+            val = user.get(key, "")
+            if str(val).strip():
+                totals.append(f"{key}: {val}")
+        if totals:
+            painter.setFont(QFont(FONT[0], 13, QFont.Weight.Bold))
+            painter.drawText(int(x_margin), int(y), int(content_width), int(20), int(Qt.AlignmentFlag.AlignHCenter), " | ")
+            painter.drawText(int(x_margin), int(y), int(content_width), int(20), int(Qt.AlignmentFlag.AlignHCenter), " | ".join(totals))
+            y += 24
+        y += 10
+        painter.setFont(QFont(FONT[0], 12, QFont.Weight.Bold))
+        painter.drawText(int(x_margin), int(y), int(content_width), int(22), int(Qt.AlignmentFlag.AlignLeft), "Scan Barcode for user data:")
+        y += 24
+        bcode_pix = None
+        try:
+            if pdf417 is not None:
+                payload_po = {k: v for k, v in user.items() if str(v).strip() != ""}
+                text_po = json.dumps({"type": "BarLoaderUser", "data": payload_po}, ensure_ascii=False, separators=(",", ":"))
+                est = max(0, len(text_po))
+                cols = max(16, min(36, 16 + est // 55))
+                codes = pdf417.encode(text_po, columns=cols, security_level=3)
+                pil_img = pdf417.render_image(codes, scale=3, ratio=3, padding=8)
+                bcode_pix = self._pil_to_qpixmap(pil_img)
+        except Exception:
+            bcode_pix = None
+        if (bcode_pix is None or bcode_pix.isNull()):
+            bcode_pix = getattr(self, "_barcode_pixmap", None) or (self.barcode_label.pixmap() or QPixmap())
+        if bcode_pix and not bcode_pix.isNull():
+            max_h = int(int(page_rect.height()) * 0.28)
+            scale_w = int(content_width) / max(1, bcode_pix.width())
+            scale_h = max_h / max(1, bcode_pix.height())
+            s = min(scale_w, scale_h)
+            target_w = int(bcode_pix.width() * s)
+            target_h = int(bcode_pix.height() * s)
+            painter.drawPixmap(int(x_margin), int(y), int(target_w), int(target_h), bcode_pix.scaled(int(target_w), int(target_h), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            y += int(target_h + 16)
+        else:
+            painter.setFont(QFont(FONT[0], 10))
+            painter.drawText(int(x_margin), int(y), int(content_width), int(20), int(Qt.AlignmentFlag.AlignLeft), "(Barcode unavailable)")
+            y += 22
+        painter.setFont(QFont(FONT[0], 9))
+        painter.drawText(int(x_margin), int(page_rect.height()-40), int(content_width), int(20), int(Qt.AlignmentFlag.AlignRight), datetime.datetime.now().strftime("%Y-%m-%d %H:%M"))
+        return int(y)
+
+    def _convert_lb_to_kg(self):
+        try:
+            if "Weight_LB" in self.fields and "Weight_KG" in self.fields:
+                lb_text = self.fields["Weight_LB"].text().strip()
+                if lb_text and lb_text != "":
+                    lb_value = float(lb_text)
+                    kg_value = convert_lb_to_kg(lb_value)
+                    self.fields["Weight_KG"].textChanged.disconnect()
+                    self.fields["Weight_KG"].setText(f"{kg_value:.1f}")
+                    self.fields["Weight_KG"].textChanged.connect(self._convert_kg_to_lb)
+        except (ValueError, TypeError):
+            pass
+
+    def _convert_kg_to_lb(self):
+        try:
+            if "Weight_KG" in self.fields and "Weight_LB" in self.fields:
+                kg_text = self.fields["Weight_KG"].text().strip()
+                if kg_text and kg_text != "":
+                    kg_value = float(kg_text)
+                    lb_value = convert_kg_to_lb(kg_value)
+                    self.fields["Weight_LB"].textChanged.disconnect()
+                    self.fields["Weight_LB"].setText(f"{lb_value:.1f}")
+                    self.fields["Weight_LB"].textChanged.connect(self._convert_lb_to_kg)
+        except (ValueError, TypeError):
+            pass
+
+    def get_user_data(self):
+        data = {}
+        for col, widget in self.fields.items():
+            if isinstance(widget, QComboBox):
+                data[col] = widget.currentText()
+            else:
+                data[col] = widget.text()
+        data["DOTS"] = ""
+        data["Wilks"] = ""
+        data["Wilks2"] = ""
+        data["IPF"] = ""
+        data["IPF_GL"] = ""
+        return data
 
 class EditableLabel(QLabel):
     """A QLabel that becomes editable when double-clicked."""
-    
-    def __init__(self, text="", parent=None):
+    def __init__(self, text: str = "", parent=None):
         super().__init__(text, parent)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.original_text = text
         self.edit_mode = False
-        self.line_edit = None
-        
+        self.line_edit: Optional[QLineEdit] = None
+
     def mouseDoubleClickEvent(self, event):
-        """Start editing when double-clicked."""
         if not self.edit_mode:
             self.start_editing()
         super().mouseDoubleClickEvent(event)
-        
+
     def start_editing(self):
-        """Switch to edit mode with stable positioning."""
         self.edit_mode = True
         self.original_text = self.text()
-        
-
         self.line_edit = QLineEdit(self.text(), self.parent())
-        
-
         self.line_edit.setGeometry(self.geometry())
         self.line_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.line_edit.setFont(self.font())
         self.line_edit.setStyleSheet(self.styleSheet())
-        
-
         self.line_edit.setSizePolicy(self.sizePolicy())
         self.line_edit.setMinimumSize(self.minimumSize())
         self.line_edit.setMaximumSize(self.maximumSize())
-        
         self.line_edit.selectAll()
         self.line_edit.show()
         self.line_edit.setFocus()
-        
-
         self.line_edit.returnPressed.connect(self.finish_editing)
         self.line_edit.editingFinished.connect(self.finish_editing)
-        
-
         self.setStyleSheet(self.styleSheet() + "color: transparent;")
-        
+
     def finish_editing(self):
-        """Finish editing and update the label."""
         if self.edit_mode and self.line_edit:
             new_text = self.line_edit.text().strip()
-            if new_text:
-                self.setText(new_text)
-            else:
-                self.setText(self.original_text)
-            
-
+            self.setText(new_text or self.original_text)
             original_style = self.styleSheet().replace("color: transparent;", "")
             self.setStyleSheet(original_style)
-            
             self.line_edit.deleteLater()
             self.line_edit = None
             self.edit_mode = False
@@ -153,110 +602,49 @@ class AddUserDialog(QDialog):
         self.setModal(True)
         self.resize(650, 800)
         self.setMinimumSize(600, 750)
-        
-
         self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {COLOR1};
-                color: {COLOR2};
-            }}
-            QGroupBox {{
-                background-color: {COLOR1};
-                color: {COLOR2};
-                border: 2px solid {COLOR_BORDER};
-                border-radius: 8px;
-                margin-top: 12px;
-                padding-top: 8px;
-                font-weight: bold;
-                font-size: 14px;
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 15px;
-                padding: 0 8px 0 8px;
-                color: {COLOR3};
-            }}
-            QLabel {{
-                color: {COLOR2};
-                font-weight: bold;
-                font-size: 12px;
-                padding: 2px;
-            }}
-            QLineEdit {{
-                background-color: {COLOR_INPUT_BG};
-                color: {COLOR_INPUT_FG};
-                border: 2px solid {COLOR_BORDER};
-                border-radius: 6px;
-                padding: 8px;
-                font-size: 12px;
-                min-height: 20px;
-            }}
-            QLineEdit:focus {{
-                border: 2px solid {COLOR3};
-                background-color: {COLOR1};
-            }}
-            QComboBox {{
-                background-color: {COLOR_INPUT_BG};
-                color: {COLOR_INPUT_FG};
-                border: 2px solid {COLOR_BORDER};
-                border-radius: 6px;
-                padding: 8px;
-                font-size: 12px;
-                min-height: 20px;
-            }}
-            QComboBox:focus {{
-                border: 2px solid {COLOR3};
-            }}
-            QComboBox::drop-down {{
-                border: none;
-                background: {COLOR_BUTTON_BG};
-                border-radius: 4px;
-                width: 20px;
-            }}
-            QComboBox::down-arrow {{
-                image: none;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 6px solid {COLOR2};
-                margin: 0px 4px 0px 4px;
-            }}
+            QDialog {{ background-color: {COLOR1}; color: {COLOR2}; }}
+            QGroupBox {{ background-color: {COLOR1}; color: {COLOR2}; border: 2px solid {COLOR_BORDER}; border-radius: 8px; margin-top: 12px; padding-top: 8px; font-weight: bold; font-size: 14px; }}
+            QGroupBox::title {{ subcontrol-origin: margin; left: 15px; padding: 0 8px; color: {COLOR3}; }}
+            QLabel {{ color: {COLOR2}; font-weight: bold; font-size: 12px; padding: 2px; }}
+            QLineEdit {{ background-color: {COLOR_INPUT_BG}; color: {COLOR_INPUT_FG}; border: 2px solid {COLOR_BORDER}; border-radius: 6px; padding: 8px; font-size: 12px; min-height: 20px; }}
+            QLineEdit:focus {{ border: 2px solid {COLOR3}; background-color: {COLOR1}; }}
+            QComboBox {{ background-color: {COLOR_INPUT_BG}; color: {COLOR_INPUT_FG}; border: 2px solid {COLOR_BORDER}; border-radius: 6px; padding: 8px; font-size: 12px; min-height: 20px; }}
+            QComboBox:focus {{ border: 2px solid {COLOR3}; }}
+            QComboBox::drop-down {{ border: none; background: {COLOR_BUTTON_BG}; border-radius: 4px; width: 20px; }}
+            QComboBox::down-arrow {{ image: none; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 6px solid {COLOR2}; margin: 0px 4px; }}
         """)
-        
 
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(15)
         main_layout.setContentsMargins(20, 20, 20, 20)
-        
 
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameStyle(QFrame.Shape.NoFrame)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        
+
         scroll_widget = QWidget()
         scroll_layout = QVBoxLayout(scroll_widget)
         scroll_layout.setSpacing(20)
-        
 
         personal_group = QGroupBox("👤 Personal Information")
         personal_layout = QGridLayout(personal_group)
         personal_layout.setSpacing(12)
         personal_layout.setContentsMargins(15, 25, 15, 15)
-        
-        self.first_name_edit = QLineEdit()
-        self.first_name_edit.setPlaceholderText("Enter first name...")
-        self.last_name_edit = QLineEdit()
-        self.last_name_edit.setPlaceholderText("Enter last name...")
-        self.age_edit = QLineEdit()
-        self.age_edit.setPlaceholderText("Enter age...")
-        self.weight_lb_edit = QLineEdit()
-        self.weight_lb_edit.setPlaceholderText("Weight in pounds...")
-        self.weight_kg_edit = QLineEdit()
-        self.weight_kg_edit.setPlaceholderText("Weight in kilograms...")
-        self.sex_combo = QComboBox()
-        self.sex_combo.addItems(["Male", "Female"])
-        
-                
+
+        self.first_name_edit = QLineEdit(); self.first_name_edit.setPlaceholderText("Enter first name...")
+        self.last_name_edit = QLineEdit(); self.last_name_edit.setPlaceholderText("Enter last name...")
+        self.age_edit = QLineEdit(); self.age_edit.setPlaceholderText("Enter age...")
+        self.weight_lb_edit = QLineEdit(); self.weight_lb_edit.setPlaceholderText("Weight in pounds...")
+        self.weight_kg_edit = QLineEdit(); self.weight_kg_edit.setPlaceholderText("Weight in kilograms...")
+        self.sex_combo = QComboBox(); self.sex_combo.addItems(["Male", "Female"])
+
+        # Fallback mapping so any converter accidentally using `self.fields` remains safe
+        self.fields = {
+            "Weight_LB": self.weight_lb_edit,
+            "Weight_KG": self.weight_kg_edit,
+        }
 
         self.weight_lb_edit.textChanged.connect(self._convert_lb_to_kg)
         self.weight_kg_edit.textChanged.connect(self._convert_kg_to_lb)
@@ -273,134 +661,82 @@ class AddUserDialog(QDialog):
         personal_layout.addWidget(self.weight_kg_edit, 4, 1)
         personal_layout.addWidget(QLabel("Sex:"), 5, 0)
         personal_layout.addWidget(self.sex_combo, 5, 1)
-        
         scroll_layout.addWidget(personal_group)
-        
 
         lifts_group = QGroupBox("🏋️ Powerlifting Attempts")
         lifts_layout = QGridLayout(lifts_group)
         lifts_layout.setSpacing(12)
         lifts_layout.setContentsMargins(15, 25, 15, 15)
-        
 
-        self.bench1_edit = QLineEdit()
-        self.bench1_edit.setPlaceholderText("Weight...")
-        self.bench2_edit = QLineEdit()
-        self.bench2_edit.setPlaceholderText("Weight...")
-        self.bench3_edit = QLineEdit()
-        self.bench3_edit.setPlaceholderText("Weight...")
-        self.squat1_edit = QLineEdit()
-        self.squat1_edit.setPlaceholderText("Weight...")
-        self.squat2_edit = QLineEdit()
-        self.squat2_edit.setPlaceholderText("Weight...")
-        self.squat3_edit = QLineEdit()
-        self.squat3_edit.setPlaceholderText("Weight...")
-        self.deadlift1_edit = QLineEdit()
-        self.deadlift1_edit.setPlaceholderText("Weight...")
-        self.deadlift2_edit = QLineEdit()
-        self.deadlift2_edit.setPlaceholderText("Weight...")
-        self.deadlift3_edit = QLineEdit()
-        self.deadlift3_edit.setPlaceholderText("Weight...")
-        
+        self.squat1_edit = QLineEdit(); self.squat1_edit.setPlaceholderText("Weight...")
+        self.squat2_edit = QLineEdit(); self.squat2_edit.setPlaceholderText("Weight...")
+        self.squat3_edit = QLineEdit(); self.squat3_edit.setPlaceholderText("Weight...")
+        self.bench1_edit = QLineEdit(); self.bench1_edit.setPlaceholderText("Weight...")
+        self.bench2_edit = QLineEdit(); self.bench2_edit.setPlaceholderText("Weight...")
+        self.bench3_edit = QLineEdit(); self.bench3_edit.setPlaceholderText("Weight...")
+        self.deadlift1_edit = QLineEdit(); self.deadlift1_edit.setPlaceholderText("Weight...")
+        self.deadlift2_edit = QLineEdit(); self.deadlift2_edit.setPlaceholderText("Weight...")
+        self.deadlift3_edit = QLineEdit(); self.deadlift3_edit.setPlaceholderText("Weight...")
 
-        lifts_layout.addWidget(QLabel(""), 0, 0)  # Empty corner
-        
-        squat_header = QLabel("Squat")
-        squat_header.setStyleSheet(f"color: {COLOR3}; font-weight: bold; font-size: 14px;")
-        lifts_layout.addWidget(squat_header, 0, 1)
-        
-        bench_header = QLabel("Bench")
-        bench_header.setStyleSheet(f"color: {COLOR3}; font-weight: bold; font-size: 14px;")
-        lifts_layout.addWidget(bench_header, 0, 2)
-        
-        deadlift_header = QLabel("Deadlift")
-        deadlift_header.setStyleSheet(f"color: {COLOR3}; font-weight: bold; font-size: 14px;")
-        lifts_layout.addWidget(deadlift_header, 0, 3)
-        
-
+        lifts_layout.addWidget(QLabel(""), 0, 0)
+        for idx, name in enumerate(("Squat", "Bench", "Deadlift"), start=1):
+            hdr = QLabel(name)
+            hdr.setStyleSheet(f"color: {COLOR3}; font-weight: bold; font-size: 14px;")
+            lifts_layout.addWidget(hdr, 0, idx)
         lifts_layout.addWidget(QLabel("Attempt 1:"), 1, 0)
         lifts_layout.addWidget(self.squat1_edit, 1, 1)
         lifts_layout.addWidget(self.bench1_edit, 1, 2)
         lifts_layout.addWidget(self.deadlift1_edit, 1, 3)
-        
         lifts_layout.addWidget(QLabel("Attempt 2:"), 2, 0)
         lifts_layout.addWidget(self.squat2_edit, 2, 1)
         lifts_layout.addWidget(self.bench2_edit, 2, 2)
         lifts_layout.addWidget(self.deadlift2_edit, 2, 3)
-        
         lifts_layout.addWidget(QLabel("Attempt 3:"), 3, 0)
         lifts_layout.addWidget(self.squat3_edit, 3, 1)
         lifts_layout.addWidget(self.bench3_edit, 3, 2)
         lifts_layout.addWidget(self.deadlift3_edit, 3, 3)
-        
         scroll_layout.addWidget(lifts_group)
-        
+
         scroll_layout.addStretch()
         scroll_area.setWidget(scroll_widget)
         main_layout.addWidget(scroll_area)
-        
 
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         button_box.setStyleSheet(f"""
-            QDialogButtonBox {{
-                background-color: {COLOR1};
-            }}
-            QPushButton {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
-                    stop:0 {COLOR_BUTTON_BG}, stop:1 {COLOR_BUTTON_HOVER});
-                color: {COLOR_BUTTON_FG};
-                border: 2px solid {COLOR_BORDER};
-                border-radius: 8px;
-                padding: 10px 20px;
-                font-weight: bold;
-                font-size: 12px;
-                min-width: 80px;
-            }}
-            QPushButton:hover {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
-                    stop:0 {COLOR3}, stop:1 {COLOR_BUTTON_BG});
-                border: 2px solid {COLOR3};
-            }}
-            QPushButton:pressed {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
-                    stop:0 {COLOR_BUTTON_HOVER}, stop:1 {COLOR_BORDER});
-            }}
+            QDialogButtonBox {{ background-color: {COLOR1}; }}
+            QPushButton {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {COLOR_BUTTON_BG}, stop:1 {COLOR_BUTTON_HOVER}); color: {COLOR_BUTTON_FG}; border: 2px solid {COLOR_BORDER}; border-radius: 8px; padding: 10px 20px; font-weight: bold; font-size: 12px; min-width: 80px; }}
+            QPushButton:hover {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {COLOR3}, stop:1 {COLOR_BUTTON_BG}); border: 2px solid {COLOR3}; }}
+            QPushButton:pressed {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {COLOR_BUTTON_HOVER}, stop:1 {COLOR_BORDER}); }}
         """)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         main_layout.addWidget(button_box)
-    
+
     def _convert_lb_to_kg(self):
-        """Convert pounds to kilograms when LB field changes."""
         try:
             lb_text = self.weight_lb_edit.text().strip()
-            if lb_text and lb_text != "":
+            if lb_text:
                 lb_value = float(lb_text)
                 kg_value = convert_lb_to_kg(lb_value)
-
                 self.weight_kg_edit.textChanged.disconnect()
                 self.weight_kg_edit.setText(f"{kg_value:.1f}")
-
                 self.weight_kg_edit.textChanged.connect(self._convert_kg_to_lb)
         except (ValueError, TypeError):
             pass
-    
+
     def _convert_kg_to_lb(self):
-        """Convert kilograms to pounds when KG field changes."""
         try:
             kg_text = self.weight_kg_edit.text().strip()
-            if kg_text and kg_text != "":
+            if kg_text:
                 kg_value = float(kg_text)
                 lb_value = convert_kg_to_lb(kg_value)
-
                 self.weight_lb_edit.textChanged.disconnect()
                 self.weight_lb_edit.setText(f"{lb_value:.1f}")
-
                 self.weight_lb_edit.textChanged.connect(self._convert_lb_to_kg)
         except (ValueError, TypeError):
             pass
 
-    def get_user_data(self):
+    def get_user_data(self) -> Dict[str, str]:
         return {
             "First": self.first_name_edit.text(),
             "Last": self.last_name_edit.text(),
@@ -422,266 +758,10 @@ class AddUserDialog(QDialog):
             "Wilks": "",
             "Wilks2": "",
             "IPF": "",
-            "IPF_GL": ""
+            "IPF_GL": "",
         }
 
-class EditUserDialog(QDialog):
-    def __init__(self, user_data, columns, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("✏️ Edit User")
-        self.setModal(True)
-        self.resize(650, 800)
-        self.setMinimumSize(600, 750)
-        
-
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {COLOR1};
-                color: {COLOR2};
-            }}
-            QGroupBox {{
-                background-color: {COLOR1};
-                color: {COLOR2};
-                border: 2px solid {COLOR_BORDER};
-                border-radius: 8px;
-                margin-top: 12px;
-                padding-top: 8px;
-                font-weight: bold;
-                font-size: 14px;
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 15px;
-                padding: 0 8px 0 8px;
-                color: {COLOR3};
-            }}
-            QLabel {{
-                color: {COLOR2};
-                font-weight: bold;
-                font-size: 12px;
-                padding: 2px;
-            }}
-            QLineEdit {{
-                background-color: {COLOR_INPUT_BG};
-                color: {COLOR_INPUT_FG};
-                border: 2px solid {COLOR_BORDER};
-                border-radius: 6px;
-                padding: 8px;
-                font-size: 12px;
-                min-height: 20px;
-            }}
-            QLineEdit:focus {{
-                border: 2px solid {COLOR3};
-                background-color: {COLOR1};
-            }}
-            QComboBox {{
-                background-color: {COLOR_INPUT_BG};
-                color: {COLOR_INPUT_FG};
-                border: 2px solid {COLOR_BORDER};
-                border-radius: 6px;
-                padding: 8px;
-                font-size: 12px;
-                min-height: 20px;
-            }}
-            QComboBox:focus {{
-                border: 2px solid {COLOR3};
-            }}
-            QComboBox::drop-down {{
-                border: none;
-                background: {COLOR_BUTTON_BG};
-                border-radius: 4px;
-                width: 20px;
-            }}
-            QComboBox::down-arrow {{
-                image: none;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 6px solid {COLOR2};
-                margin: 0px 4px 0px 4px;
-            }}
-        """)
-        
-
-        main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(15)
-        main_layout.setContentsMargins(20, 20, 20, 20)
-        
-
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameStyle(QFrame.Shape.NoFrame)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        
-        scroll_widget = QWidget()
-        scroll_layout = QVBoxLayout(scroll_widget)
-        scroll_layout.setSpacing(20)
-        
-        self.fields = {}
-        
-
-        personal_group = QGroupBox("👤 Personal Information")
-        personal_layout = QGridLayout(personal_group)
-        personal_layout.setSpacing(12)
-        personal_layout.setContentsMargins(15, 25, 15, 15)
-        
-        personal_fields = ["First", "Last", "Age", "Weight_LB", "Weight_KG", "Sex"]
-        row = 0
-        for field in personal_fields:
-            if field in columns:
-                label = QLabel(f"{field.replace('_', ' ')}:")
-                if field == "Sex":
-                    widget = QComboBox()
-                    widget.addItems(["Male", "Female"])
-                    widget.setCurrentText(user_data.get(field, ""))
-                else:
-                    widget = QLineEdit()
-                    widget.setText(user_data.get(field, ""))
-                    if field in ["Age", "Weight_LB", "Weight_KG"]:
-                        widget.setPlaceholderText("Enter number...")
-                
-                self.fields[field] = widget
-                personal_layout.addWidget(label, row, 0)
-                personal_layout.addWidget(widget, row, 1)
-                row += 1
-        
-
-        if "Weight_LB" in self.fields and "Weight_KG" in self.fields:
-            self.fields["Weight_LB"].textChanged.connect(self._convert_lb_to_kg)
-            self.fields["Weight_KG"].textChanged.connect(self._convert_kg_to_lb)
-        
-        scroll_layout.addWidget(personal_group)
-        
-
-        lifts_group = QGroupBox("🏋️ Powerlifting Attempts")
-        lifts_layout = QGridLayout(lifts_group)
-        lifts_layout.setSpacing(12)
-        lifts_layout.setContentsMargins(15, 25, 15, 15)
-        
-
-        lift_types = ["Squat", "Bench", "Deadlift"]
-        row = 0
-        
-
-        lifts_layout.addWidget(QLabel(""), 0, 0)  # Empty corner
-        for col, lift_type in enumerate(lift_types):
-            header_label = QLabel(f"{lift_type}")
-            header_label.setStyleSheet(f"color: {COLOR3}; font-weight: bold; font-size: 14px;")
-            lifts_layout.addWidget(header_label, 0, col + 1)
-        
-
-        for attempt in range(1, 4):
-            attempt_label = QLabel(f"Attempt {attempt}:")
-            lifts_layout.addWidget(attempt_label, attempt, 0)
-            
-            for col, lift_type in enumerate(lift_types):
-                field = f"{lift_type}{attempt}"
-                if field in columns:
-                    widget = QLineEdit()
-                    widget.setText(user_data.get(field, ""))
-                    widget.setPlaceholderText("Weight...")
-                    self.fields[field] = widget
-                    lifts_layout.addWidget(widget, attempt, col + 1)
-        
-        scroll_layout.addWidget(lifts_group)
-        
-
-        other_fields = [col for col in columns if col not in personal_fields + [f"{lift}{num}" for lift in lift_types for num in range(1, 4)] and col != "DOTS"]
-        if other_fields:
-            other_group = QGroupBox("📊 Additional Information")
-            other_layout = QGridLayout(other_group)
-            other_layout.setSpacing(12)
-            other_layout.setContentsMargins(15, 25, 15, 15)
-            
-            for i, field in enumerate(other_fields):
-                label = QLabel(f"{field.replace('_', ' ')}:")
-                widget = QLineEdit()
-                widget.setText(user_data.get(field, ""))
-                self.fields[field] = widget
-                other_layout.addWidget(label, i, 0)
-                other_layout.addWidget(widget, i, 1)
-            
-            scroll_layout.addWidget(other_group)
-        
-        scroll_layout.addStretch()
-        scroll_area.setWidget(scroll_widget)
-        main_layout.addWidget(scroll_area)
-        
-
-        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        button_box.setStyleSheet(f"""
-            QDialogButtonBox {{
-                background-color: {COLOR1};
-            }}
-            QPushButton {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
-                    stop:0 {COLOR_BUTTON_BG}, stop:1 {COLOR_BUTTON_HOVER});
-                color: {COLOR_BUTTON_FG};
-                border: 2px solid {COLOR_BORDER};
-                border-radius: 8px;
-                padding: 10px 20px;
-                font-weight: bold;
-                font-size: 12px;
-                min-width: 80px;
-            }}
-            QPushButton:hover {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
-                    stop:0 {COLOR3}, stop:1 {COLOR_BUTTON_BG});
-                border: 2px solid {COLOR3};
-            }}
-            QPushButton:pressed {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
-                    stop:0 {COLOR_BUTTON_HOVER}, stop:1 {COLOR_BORDER});
-            }}
-        """)
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-        main_layout.addWidget(button_box)
-    
-    def _convert_lb_to_kg(self):
-        """Convert pounds to kilograms when LB field changes."""
-        try:
-            if "Weight_LB" in self.fields and "Weight_KG" in self.fields:
-                lb_text = self.fields["Weight_LB"].text().strip()
-                if lb_text and lb_text != "":
-                    lb_value = float(lb_text)
-                    kg_value = convert_lb_to_kg(lb_value)
-
-                    self.fields["Weight_KG"].textChanged.disconnect()
-                    self.fields["Weight_KG"].setText(f"{kg_value:.1f}")
-
-                    self.fields["Weight_KG"].textChanged.connect(self._convert_kg_to_lb)
-        except (ValueError, TypeError):
-            pass
-    
-    def _convert_kg_to_lb(self):
-        """Convert kilograms to pounds when KG field changes."""
-        try:
-            if "Weight_KG" in self.fields and "Weight_LB" in self.fields:
-                kg_text = self.fields["Weight_KG"].text().strip()
-                if kg_text and kg_text != "":
-                    kg_value = float(kg_text)
-                    lb_value = convert_kg_to_lb(kg_value)
-
-                    self.fields["Weight_LB"].textChanged.disconnect()
-                    self.fields["Weight_LB"].setText(f"{lb_value:.1f}")
-
-                    self.fields["Weight_LB"].textChanged.connect(self._convert_lb_to_kg)
-        except (ValueError, TypeError):
-            pass
-    
-    def get_user_data(self):
-        data = {}
-        for col, widget in self.fields.items():
-            if isinstance(widget, QComboBox):
-                data[col] = widget.currentText()
-            else:
-                data[col] = widget.text()
-        data["DOTS"] = ""  # Will be calculated later
-        data["Wilks"] = ""  # Will be calculated later
-        data["Wilks2"] = ""  # Will be calculated later
-        data["IPF"] = ""  # Will be calculated later
-        data["IPF_GL"] = ""  # Will be calculated later
-        return data
+    # Photo import has been removed per request
 
 class BarbellCalculator(QMainWindow):
     def __init__(self):
@@ -1387,6 +1467,33 @@ class BarbellCalculator(QMainWindow):
             }}
         """)
         filter_sort_layout.addWidget(self.export_btn)
+        
+        # Download all barcodes (bulk JPG export)
+        self.download_barcodes_btn = QPushButton("⬇️ Download Barcodes")
+        self.download_barcodes_btn.setToolTip("Export JPGs with title, data, and PDF417 barcode for all filtered users")
+        self.download_barcodes_btn.clicked.connect(self.download_all_barcodes)
+        self.download_barcodes_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {COLOR_BUTTON_BG}, stop:1 {COLOR_BUTTON_HOVER});
+                color: {COLOR_BUTTON_FG};
+                border: 2px solid {COLOR_BORDER};
+                border-radius: 8px;
+                padding: 6px 10px;
+                font-weight: bold;
+                font-size: 10px;
+            }}
+            QPushButton:hover {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {COLOR3}, stop:1 {COLOR_BUTTON_BG});
+                border: 2px solid {COLOR3};
+            }}
+            QPushButton:pressed {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {COLOR_BUTTON_HOVER}, stop:1 {COLOR_BORDER});
+            }}
+        """)
+        filter_sort_layout.addWidget(self.download_barcodes_btn)
 
         self.user_columns = [
             "First", "Last", "Age", "Weight_LB", "Weight_KG", "Sex",
@@ -2278,6 +2385,58 @@ class BarbellCalculator(QMainWindow):
             self.display_message(f"Exported {len(self.filtered_sorted_users)} users to {filename}")
         else:
             self.display_message("Export failed")
+
+    def download_all_barcodes(self):
+        dest_dir = QFileDialog.getExistingDirectory(self, "Select folder to save all barcodes")
+        if not dest_dir:
+            return
+
+        # Export all loaded users (not just filtered)
+        users = self.users or []
+        if not users:
+            QMessageBox.information(self, "No Users", "There are no users to export.")
+            return
+
+        try:
+            update_user_scores(users)
+        except Exception:
+            pass
+
+        base_w, base_h = 2480, 3508
+        factor = 4  # 4x quality
+        exported = 0
+        ts_all = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # Reuse drawing routine from the dialog
+        temp_dialog = EditUserDialog({}, self.user_columns, self)
+
+        for idx, user in enumerate(users, start=1):
+            first = user.get("First", "User").strip()
+            last = user.get("Last", "").strip()
+            base = f"{first}_{last}".strip("_") or f"user_{idx}"
+            safe = re.sub(r"[^A-Za-z0-9_\-]+", "_", base)
+            out_path = os.path.join(dest_dir, f"{safe}_{ts_all}.png")
+
+            image = QImage(base_w * factor, base_h * factor, QImage.Format.Format_ARGB32)
+            image.fill(Qt.GlobalColor.white)
+            p = QPainter(image)
+            try:
+                p.scale(factor, factor)
+                used_h = temp_dialog._draw_user_card(p, QRect(0, 0, base_w, base_h), user)
+            finally:
+                p.end()
+            used_h_px = max(1, min(image.height(), int(used_h * factor + 24 * factor)))
+            if used_h_px < image.height():
+                image = image.copy(QRect(0, 0, image.width(), used_h_px))
+            try:
+                # Switch extension to .jpg
+                out_path = os.path.splitext(out_path)[0] + ".jpg"
+                image.save(out_path, "JPG", 95)
+                exported += 1
+            except Exception as e:
+                print(f"Failed to save {out_path}: {e}")
+
+        QMessageBox.information(self, "Export Complete", f"Saved {exported} barcode PNGs to:\n{dest_dir}")
 
     def import_users_from_csv(self):
         filename, _ = QFileDialog.getOpenFileName(self, "Import Users from CSV", "", "CSV Files (*.csv)")

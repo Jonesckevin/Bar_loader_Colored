@@ -9,6 +9,9 @@ PyQt6>=6.4.0
 #Pillow>=8.0.0
 Pillow>=10.0.0
 
+## PDF417 barcode generation
+pdf417gen>=0.7.1
+
 ## Building and packaging dependencies
 pyinstaller>=5.0.0
 
